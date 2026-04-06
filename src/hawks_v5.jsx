@@ -1850,6 +1850,8 @@ export default function App() {
 
   const teams = useMemo(() => data ? classifyTeams(data) : { focal: [], opponents: [], all: [] }, [data]);
 
+
+
   useEffect(() => {
     fetch("/data/RiverHill_Repository_Master.xlsx")
       .then(r => r.arrayBuffer())
@@ -1863,20 +1865,6 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
-useEffect(() => {
-  fetch('/data/RiverHill_Repository_Master.xlsx')
-    .then(r => r.arrayBuffer())
-    .then(buf => {
-      const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
-      const parsed = parseWorkbook(wb);
-      setData(parsed);
-      setFileName('RiverHill_Repository_Master.xlsx');
-      const t = classifyTeams(parsed);
-      setFocalTeam(t.focal.includes('RVRH') ? 'RVRH' : t.focal[0] || '');
-    })
-    .catch(() => {}); // silently fall back to manual upload
-}, []);
-
 
   const loadFile = useCallback(file => {
     if (!file) return;
