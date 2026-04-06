@@ -1849,6 +1849,20 @@ export default function App() {
   const fileRef = useRef(null);
 
   const teams = useMemo(() => data ? classifyTeams(data) : { focal: [], opponents: [], all: [] }, [data]);
+
+  useEffect(() => {
+    fetch("/data/RiverHill_Repository_Master.xlsx")
+      .then(r => r.arrayBuffer())
+      .then(buf => {
+        const wb = XLSX.read(new Uint8Array(buf), { type: "array" });
+        const parsed = parseWorkbook(wb);
+        setData(parsed);
+        setFileName("RiverHill_Repository_Master.xlsx");
+        const t = classifyTeams(parsed);
+        setFocalTeam(t.focal.includes("RVRH") ? "RVRH" : t.focal[0] || "");
+      })
+      .catch(() => {});
+  }, []);
 useEffect(() => {
   fetch('/data/RiverHill_Repository_Master.xlsx')
     .then(r => r.arrayBuffer())
