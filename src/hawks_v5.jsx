@@ -248,7 +248,7 @@ function opponentRotation(data, teamId) {
 }
 
 // ─── Claude API ───────────────────────────────────────────────────────────────
-async function callClaude(system, user, maxTokens = 1500 endpoint = "/api/ktg") {
+async function callClaude(system, user, maxTokens = 1500, endpoint = "/api/ktg") {
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
