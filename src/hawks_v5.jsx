@@ -14,7 +14,7 @@ const clamp = (v, max) => v > max ? max : v;
 // ─── parsing ──────────────────────────────────────────────────────────────────
 function parseWorkbook(wb) {
   const get = n => { const ws = wb.Sheets[n]; return ws ? XLSX.utils.sheet_to_json(ws, { defval: "" }) : []; };
-  return { gameLog: get("Game_Log"), batting: get("Batting"), pitching: get("Pitching"), fielding: get("Fielding") };
+  return { gameLog: get("Game_Log"), batting: get("Batting"), pitching: get("Pitching"), fielding: get("Fielding"), roster: get("Roster") };
 }
 
 function classifyTeams(data) {
@@ -30,9 +30,9 @@ function aggBatting(rows) {
   const m = {};
   for (const r of rows) {
     const p = r.Player || "?";
-    if (!m[p]) m[p] = { Player: p, G: new Set(), PA:0, AB:0, H:0, "1B":0, "2B":0, "3B":0, HR:0, BB:0, HBP:0, K:0, R:0, RBI:0, SB:0, CS:0 };
+    if (!m[p]) m[p] = { Player: p, G: new Set(), PA:0, AB:0, H:0, "1B":0, "2B":0, "3B":0, HR:0, BB:0, HBP:0, K:0, R:0, RBI:0, SB:0, CS:0, GDP:0, SAC:0, FC:0 };
     if (r.Game_ID) m[p].G.add(r.Game_ID);
-    ["PA","AB","H","1B","2B","3B","HR","BB","HBP","K","R","RBI","SB","CS"].forEach(k => m[p][k] += num(r[k]));
+    ["PA","AB","H","1B","2B","3B","HR","BB","HBP","K","R","RBI","SB","CS","GDP","SAC","FC"].forEach(k => m[p][k] += num(r[k]));
   }
   return Object.values(m).map(r => {
     const AVG = safe(r.H, r.AB), OBP = safe(r.H + r.BB + r.HBP, r.PA);
@@ -45,10 +45,11 @@ function aggPitching(rows) {
   const m = {};
   for (const r of rows) {
     const p = r.Pitcher || "?";
-    if (!m[p]) m[p] = { Pitcher: p, G: new Set(), Outs:0, BF:0, H:0, BB:0, K:0, R:0, HR:0, WP:0 };
+    if (!m[p]) m[p] = { Pitcher: p, G: new Set(), Outs:0, BF:0, H:0, "1B":0, "2B":0, "3B":0, BB:0, HBP:0, K:0, R:0, HR:0, WP:0 };
     if (r.Game_ID) m[p].G.add(r.Game_ID);
     m[p].Outs += num(r.Outs_Recorded); m[p].BF += num(r.BF);
-    m[p].H += num(r.H_Allowed); m[p].BB += num(r.BB_Allowed);
+    m[p].H += num(r.H_Allowed); m[p]["1B"] += num(r["1B_Allowed"]); m[p]["2B"] += num(r["2B_Allowed"]); m[p]["3B"] += num(r["3B_Allowed"]);
+    m[p].BB += num(r.BB_Allowed); m[p].HBP += num(r.HBP_Allowed);
     m[p].K += num(r.K); m[p].R += num(r.R_Allowed);
     m[p].HR += num(r.HR_Allowed); m[p].WP += num(r.WP);
   }
@@ -129,6 +130,15 @@ function pitcherImpact(p) {
   if (score >= 0.55) return { score, tier: "QUALITY",  color: "var(--gold-t)", emoji: "🟠" };
   if (score >= 0.38) return { score, tier: "AVERAGE",  color: "var(--blue)",   emoji: "🔵" };
   return { score, tier: "BELOW AVG", color: "var(--muted)", emoji: "⚪" };
+}
+
+// Pitcher Role — Starter ≥9 avg outs, Reliever ≥4.5, else Setup/Closer
+function pitcherRole(p) {
+  if (p.G === 0) return "—";
+  const avgOuts = p.Outs / p.G;
+  if (avgOuts >= 9) return "Starter";
+  if (avgOuts >= 4.5) return "Reliever";
+  return "Setup/Closer";
 }
 
 // Playoff Threat Matrix — opponent teams only
@@ -710,6 +720,104 @@ tbody tr:hover td { background:var(--s2); cursor:pointer; }
 .rot-card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:12px 14px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
 .rot-name { font-weight:700; font-size:14px; color:var(--navy); margin-bottom:2px; }
 .rot-detail { font-size:11px; color:var(--muted); line-height:1.7; }
+
+/* Teams tab — team cards list */
+.team-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; }
+.team-card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:18px; cursor:pointer; transition:all .15s; box-shadow:0 1px 3px rgba(0,40,104,.06); }
+.team-card:hover { border-color:var(--navy); box-shadow:0 2px 8px rgba(0,40,104,.12); }
+.team-card-name { font-weight:800; font-size:18px; color:var(--navy); letter-spacing:.5px; margin-bottom:8px; }
+.team-card-record { font-size:13px; font-weight:700; color:var(--text2); margin-bottom:10px; }
+.team-card-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+.team-card-stat { text-align:center; }
+.team-card-stat-val { font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--navy); }
+.team-card-stat-lbl { font-size:9px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+
+/* Recent form strip */
+.form-strip { display:flex; gap:8px; overflow-x:auto; padding:4px 0 8px; margin-bottom:18px; }
+.form-card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:10px 14px; min-width:110px; flex-shrink:0; box-shadow:0 1px 3px rgba(0,40,104,.06); text-align:center; }
+.form-card.win  { border-left:3px solid var(--green); }
+.form-card.loss { border-left:3px solid var(--red); }
+.form-card.tie  { border-left:3px solid var(--muted); }
+.form-card-date { font-size:10px; color:var(--muted); font-weight:600; }
+.form-card-opp  { font-size:13px; font-weight:700; color:var(--navy); margin:3px 0; }
+.form-card-score{ font-size:14px; font-weight:800; font-variant-numeric:tabular-nums; }
+
+/* Splits panel */
+.splits-panel { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:18px; }
+@media(max-width:700px) { .splits-panel{grid-template-columns:1fr} }
+.split-card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:16px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
+.split-card-title { font-size:10px; font-weight:800; color:var(--navy); text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; padding-bottom:8px; border-bottom:2px solid var(--navy); }
+.split-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--s3); font-size:13px; }
+.split-row:last-child { border-bottom:none; }
+.split-label { font-weight:600; color:var(--text); }
+.split-val { font-weight:700; font-variant-numeric:tabular-nums; color:var(--text2); }
+
+/* Lineup card */
+.lineup-wrap { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); overflow:hidden; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
+.lineup-row { display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--bd); cursor:pointer; transition:background .1s; }
+.lineup-row:last-child { border-bottom:none; }
+.lineup-row:hover { background:var(--s2); }
+.lineup-slot { font-size:16px; font-weight:800; color:var(--bd2); width:22px; text-align:center; flex-shrink:0; }
+.lineup-name { font-weight:600; font-size:14px; color:var(--navy); flex:1; }
+.lineup-stat { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text2); width:50px; text-align:right; flex-shrink:0; }
+
+/* Player profile header */
+.player-header { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:20px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
+.player-header-name { font-weight:800; font-size:22px; color:var(--navy); letter-spacing:.5px; }
+.player-header-sub { font-size:13px; color:var(--muted); margin-top:4px; }
+.player-header-stats { display:flex; gap:20px; margin-top:12px; flex-wrap:wrap; }
+.player-header-stat { text-align:center; }
+.player-header-stat-val { font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--navy); }
+.player-header-stat-lbl { font-size:9px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+
+/* Recent form columns */
+.form-cols { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:18px; }
+@media(max-width:600px) { .form-cols{grid-template-columns:1fr} }
+.form-col { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:14px; text-align:center; box-shadow:0 1px 3px rgba(0,40,104,.06); }
+.form-col-title { font-size:10px; font-weight:800; color:var(--navy); text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; padding-bottom:8px; border-bottom:2px solid var(--navy); }
+.form-col-row { display:flex; justify-content:space-between; padding:4px 0; font-size:13px; }
+.form-col-label { color:var(--muted); font-weight:600; }
+.form-col-val { font-weight:800; font-variant-numeric:tabular-nums; }
+
+/* Score breakdown bar */
+.score-breakdown { margin-top:12px; }
+.score-bar-wrap { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.score-bar-label { font-size:10px; font-weight:700; color:var(--muted); width:55px; flex-shrink:0; text-transform:uppercase; letter-spacing:.5px; }
+.score-bar-track { flex:1; height:10px; background:var(--s3); border-radius:5px; overflow:hidden; }
+.score-bar-fill { height:100%; border-radius:5px; transition:width .4s; }
+.score-bar-val { font-size:11px; font-weight:800; font-variant-numeric:tabular-nums; width:36px; text-align:right; flex-shrink:0; }
+
+/* Two-way badge */
+.two-way-badge { display:inline-block; font-size:9px; font-weight:800; padding:2px 7px; border-radius:4px; background:rgba(26,112,64,.1); color:var(--green); border:1px solid rgba(26,112,64,.3); letter-spacing:.4px; margin-left:6px; vertical-align:middle; }
+
+/* Role badge */
+.role-badge { display:inline-block; font-size:9px; font-weight:700; padding:2px 6px; border-radius:3px; letter-spacing:.3px; white-space:nowrap; }
+.role-starter  { background:rgba(0,40,104,.08); color:var(--navy); border:1px solid rgba(0,40,104,.2); }
+.role-reliever { background:rgba(74,144,212,.1); color:var(--blue); border:1px solid rgba(74,144,212,.3); }
+.role-closer   { background:rgba(184,96,16,.1); color:var(--amber); border:1px solid rgba(184,96,16,.3); }
+
+/* Hit type mini bar */
+.hit-type-bar { display:flex; height:14px; border-radius:7px; overflow:hidden; margin-top:6px; }
+.hit-type-seg { height:100%; display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:800; color:#fff; min-width:0; }
+.hit-type-legend { display:flex; gap:12px; margin-top:4px; }
+.hit-type-legend-item { font-size:10px; color:var(--muted); display:flex; align-items:center; gap:3px; }
+.hit-type-legend-dot { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+
+/* Player list */
+.player-list-row { display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--bd); cursor:pointer; transition:background .1s; }
+.player-list-row:last-child { border-bottom:none; }
+.player-list-row:hover { background:var(--s2); }
+.player-list-name { font-weight:600; font-size:14px; color:var(--navy); flex:1; min-width:0; }
+.player-list-stat { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text2); width:50px; text-align:right; flex-shrink:0; }
+
+/* Counting stats grid */
+.counting-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(70px,1fr)); gap:8px; margin-bottom:14px; }
+.counting-item { background:var(--s2); border-radius:6px; padding:8px; text-align:center; }
+.counting-val { font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--navy); }
+.counting-lbl { font-size:9px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-top:2px; }
+
+/* Muted row for low-PA players */
+.muted-row td { opacity:.55; }
 `;
 
 // ─── useSort ──────────────────────────────────────────────────────────────────
@@ -1328,6 +1436,880 @@ function TeamProfile({ data, teamId, teams, onBack, onMatchup }) {
   );
 }
 
+// ─── TEAMS TAB ───────────────────────────────────────────────────────────────
+function TeamsTab({ data, teams, focalTeam, onPlayerClick }) {
+  const [selectedTeam, setSelectedTeam] = useState(null);
+
+  // List view — focal team cards
+  if (!selectedTeam) {
+    return (
+      <div>
+        <div className="sec-title">Team Profiles</div>
+        <div className="team-cards">
+          {teams.focal.map(tid => {
+            const s = teamSummary(data, tid);
+            return (
+              <div key={tid} className="team-card" onClick={() => setSelectedTeam(tid)}>
+                <div className="team-card-name">
+                  <span className="focal-dot" />{tid}
+                </div>
+                <div className="team-card-record">{s.W}–{s.L} · {s.G} games</div>
+                <div className="team-card-stats">
+                  {[
+                    { v: fix2(s.RpG), l: "RS/G" },
+                    { v: fix2(s.RApG), l: "RA/G" },
+                    { v: fix2(s.ERA), l: "ERA" },
+                    { v: avg3(s.teamOBP + s.teamSLG), l: "OPS" },
+                  ].map(({ v, l }) => (
+                    <div key={l} className="team-card-stat">
+                      <div className="team-card-stat-val">{v}</div>
+                      <div className="team-card-stat-lbl">{l}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // Profile view
+  return <FocalTeamProfile data={data} teamId={selectedTeam} teams={teams}
+    onBack={() => setSelectedTeam(null)} onPlayerClick={onPlayerClick} />;
+}
+
+function FocalTeamProfile({ data, teamId, teams, onBack, onPlayerClick }) {
+  const s = useMemo(() => teamSummary(data, teamId), [data, teamId]);
+  const pitcherNames = new Set(s.pitchers.map(p => p.Pitcher));
+  const batterNames = new Set(s.batters.map(b => b.Player));
+  const twoWayNames = new Set([...pitcherNames].filter(n => batterNames.has(n)));
+
+  // Recent form — last 5 games
+  const recentGames = useMemo(() => {
+    return data.gameLog
+      .filter(g => g.Focal_Team === teamId)
+      .sort((a, b) => String(a.Game_Date).localeCompare(String(b.Game_Date)))
+      .slice(-5);
+  }, [data, teamId]);
+
+  // Splits — home/away
+  const splits = useMemo(() => {
+    const home = { W: 0, L: 0, RS: 0, RA: 0, G: 0 };
+    const away = { W: 0, L: 0, RS: 0, RA: 0, G: 0 };
+    data.gameLog.filter(g => g.Focal_Team === teamId).forEach(g => {
+      const isHome = g.Home_Team === teamId;
+      const bucket = isHome ? home : away;
+      const ar = num(g.Away_R), hr = num(g.Home_R);
+      const tr = isHome ? hr : ar, or = isHome ? ar : hr;
+      bucket.G++;
+      bucket.RS += tr; bucket.RA += or;
+      if (tr > or) bucket.W++; else if (tr < or) bucket.L++;
+    });
+    return { home, away };
+  }, [data, teamId]);
+
+  // Splits — by opponent
+  const oppSplits = useMemo(() => {
+    const m = {};
+    data.gameLog.filter(g => g.Focal_Team === teamId).forEach(g => {
+      const opp = g.Away_Team === teamId ? g.Home_Team : g.Away_Team;
+      if (!m[opp]) m[opp] = { opp, W: 0, L: 0, RS: 0, RA: 0, G: 0 };
+      m[opp].G++;
+      const ar = num(g.Away_R), hr = num(g.Home_R);
+      const tr = g.Away_Team === teamId ? ar : hr, or = g.Away_Team === teamId ? hr : ar;
+      m[opp].RS += tr; m[opp].RA += or;
+      if (tr > or) m[opp].W++; else if (tr < or) m[opp].L++;
+    });
+    return Object.values(m).sort((a, b) => b.G - a.G);
+  }, [data, teamId]);
+
+  // Lineup card — from Roster sheet Order column
+  const lineup = useMemo(() => {
+    if (!data.roster) return [];
+    const rosterRows = data.roster.filter(r => r.Team_Code === teamId && r.Order);
+    if (rosterRows.length === 0) return [];
+    return rosterRows
+      .sort((a, b) => num(a.Order) - num(b.Order))
+      .map(r => {
+        const batter = s.batters.find(b => b.Player === r.Player);
+        return { slot: num(r.Order), name: r.Player, batter };
+      });
+  }, [data, teamId, s]);
+
+  // Pitching staff — sortable table
+  const pitchersWithRole = useMemo(() =>
+    s.pitchers.map(p => ({ ...p, Role: pitcherRole(p), isTwoWay: twoWayNames.has(p.Pitcher) })),
+    [s, twoWayNames]
+  );
+  const { sorted: pSort, col: pCol, dir: pDir, toggle: pToggle } = useSort(pitchersWithRole, "IP");
+
+  // Batting table — sortable
+  const battersWithFlags = useMemo(() =>
+    s.batters.map(b => ({ ...b, isTwoWay: twoWayNames.has(b.Player), KPct: safe(b.K, b.PA), BBPct: safe(b.BB, b.PA) })),
+    [s, twoWayNames]
+  );
+  const { sorted: bSort, col: bCol, dir: bDir, toggle: bToggle } = useSort(battersWithFlags, "OPS");
+
+  // Defensive summary
+  const defTgts = useMemo(() => defensiveTargets(data, teamId), [data, teamId]);
+
+  return (
+    <div>
+      {/* Back button */}
+      <button className="back-btn" onClick={onBack}>← Teams</button>
+
+      {/* Section 1 — Season Header Bar */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 16 }}>
+        <span className="focal-dot" />
+        <span style={{ fontFamily: "'Nunito Sans'", fontWeight: 800, fontSize: 24, letterSpacing: 1 }}>{teamId}</span>
+        <span className="badge b-gold">focal</span>
+      </div>
+      {s.G > 0 && (
+        <div className="g4" style={{ gridTemplateColumns: "repeat(5,1fr)", marginBottom: 18 }}>
+          {[
+            { l: "Record", v: `${s.W}–${s.L}` },
+            { l: "Run Diff", v: `${s.RS - s.RA >= 0 ? "+" : ""}${s.RS - s.RA}`, c: s.RS - s.RA > 0 ? "c-g" : s.RS - s.RA < 0 ? "c-r" : "" },
+            { l: "RS/G", v: fix2(s.RpG), c: s.RpG >= 5 ? "c-g" : "" },
+            { l: "RA/G", v: fix2(s.RApG), c: s.RApG <= 3 ? "c-g" : s.RApG >= 6 ? "c-r" : "" },
+            { l: "Games", v: s.G },
+          ].map(({ l, v, c }) => (
+            <div key={l} className="stat-card">
+              <div className="stat-card-label">{l}</div>
+              <div className={`stat-card-value ${c || ""}`}>{v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Section 2 — Recent Form Strip */}
+      {recentGames.length > 0 && (
+        <>
+          <div className="sec-title">Recent Form</div>
+          <div className="form-strip">
+            {recentGames.map(g => {
+              const isAway = g.Away_Team === teamId;
+              const tr = isAway ? num(g.Away_R) : num(g.Home_R);
+              const or = isAway ? num(g.Home_R) : num(g.Away_R);
+              const opp = isAway ? g.Home_Team : g.Away_Team;
+              const result = tr > or ? "win" : tr < or ? "loss" : "tie";
+              const dateStr = g.Game_ID ? String(g.Game_ID).slice(5, 10) : String(g.Game_Date);
+              return (
+                <div key={g.Game_ID} className={`form-card ${result}`}>
+                  <div className="form-card-date">{dateStr}</div>
+                  <div className="form-card-opp">{isAway ? "@" : "vs"} {opp}</div>
+                  <div className="form-card-score" style={{ color: result === "win" ? "var(--green)" : result === "loss" ? "var(--red)" : "var(--muted)" }}>
+                    {tr}–{or} {result === "win" ? "W" : result === "loss" ? "L" : "T"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Section 3 — Splits Panel */}
+      <div className="sec-title">Splits</div>
+      <div className="splits-panel">
+        <div className="split-card">
+          <div className="split-card-title">Home / Away</div>
+          {[
+            { label: "Home", data: splits.home },
+            { label: "Away", data: splits.away },
+          ].map(({ label, data: sp }) => (
+            <div key={label} className="split-row">
+              <span className="split-label">{label}</span>
+              <span className="split-val">{sp.W}–{sp.L} · RS {sp.RS} · RA {sp.RA}</span>
+            </div>
+          ))}
+        </div>
+        <div className="split-card">
+          <div className="split-card-title">By Opponent</div>
+          {oppSplits.map(os => (
+            <div key={os.opp} className="split-row">
+              <span className="split-label">{os.opp}</span>
+              <span className="split-val">{os.W}–{os.L} · RS {os.RS} · RA {os.RA}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Section 4 — Lineup Card */}
+      {lineup.length > 0 ? (
+        <>
+          <div className="sec-title">Lineup Card</div>
+          <div className="lineup-wrap">
+            {lineup.map(({ slot, name, batter }) => {
+              const ht = batter && batter.PA >= 8 ? hitterThreat(batter) : null;
+              return (
+                <div key={slot} className="lineup-row" onClick={() => onPlayerClick && onPlayerClick(teamId, name)}>
+                  <div className="lineup-slot">{slot}</div>
+                  <div className="lineup-name">{name}</div>
+                  {batter && <div className="lineup-stat">{avg3(batter.AVG)}</div>}
+                  {batter && <div className="lineup-stat">{avg3(batter.OBP)}</div>}
+                  {batter && <div className="lineup-stat">{avg3(batter.OPS)}</div>}
+                  {ht && <span className={`tier-badge tier-${ht.tier === "ELITE" ? "elite" : ht.tier === "HIGH" ? "high" : ht.tier === "MODERATE" ? "moderate" : "low"}`}>{ht.tier}</span>}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        data.roster && data.roster.some(r => r.Team_Code === teamId) ? (
+          <div style={{ background: "var(--s2)", border: "1px solid var(--bd)", borderRadius: "var(--radius)", padding: 16, marginBottom: 18, fontSize: 13, color: "var(--muted)" }}>
+            Lineup order not available — add <code>Order</code> column to Roster sheet to enable.
+          </div>
+        ) : null
+      )}
+
+      {/* Section 5 — Pitching Staff (sortable table) */}
+      <div className="sec-title">Pitching Staff</div>
+      <div className="tbl-wrap" style={{ marginBottom: 18 }}>
+        <table>
+          <thead><tr>
+            {[["Pitcher","Name",true],["Role","Role",true],["IP","IP"],["ERA","ERA"],["WHIP","WHIP"],["K","K"],["BB","BB"],["KBB","K/BB"],["BBPct","BB%"],["KPct","K%"]].map(([c,l,left]) => (
+              <Th key={c} c={c} label={l} s={pCol} d={pDir} fn={pToggle} left={!!left} />
+            ))}
+            <th style={{ textAlign: "center", fontSize: 11, fontFamily: "'Nunito Sans'", fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: ".8px", background: "var(--s2)", borderBottom: "2px solid var(--bd)", padding: "10px 8px" }}>Impact</th>
+          </tr></thead>
+          <tbody>
+            {pSort.map(p => {
+              const imp = pitcherImpact(p);
+              const roleCls = p.Role === "Starter" ? "role-starter" : p.Role === "Reliever" ? "role-reliever" : "role-closer";
+              return (
+                <tr key={p.Pitcher} onClick={() => onPlayerClick && onPlayerClick(teamId, p.Pitcher)} style={{ cursor: "pointer" }}>
+                  <td style={{ fontWeight: 500 }}>
+                    {p.Pitcher}
+                    {p.isTwoWay && <span className="two-way-badge">2-WAY</span>}
+                  </td>
+                  <td><span className={`role-badge ${roleCls}`}>{p.Role}</span></td>
+                  <td className="td-r mono">{fmtIP(p.Outs)}</td>
+                  <td className={`td-r mono ${p.ERA <= 2.5 ? "c-g" : p.ERA >= 5 ? "c-r" : ""}`}>{fix2(p.ERA)}</td>
+                  <td className={`td-r mono ${p.WHIP <= 1.2 ? "c-g" : p.WHIP >= 2 ? "c-r" : ""}`}>{fix2(p.WHIP)}</td>
+                  <td className={`td-r mono ${p.K >= 8 ? "c-g" : ""}`}>{p.K}</td>
+                  <td className={`td-r mono ${p.BB >= 5 ? "c-r" : ""}`}>{p.BB}</td>
+                  <td className={`td-r mono ${p.KBB >= 2 ? "c-g" : ""}`}>{fix1(clamp(p.KBB, 20))}{p.KBB > 20 ? "+" : ""}</td>
+                  <td className={`td-r mono ${p.BBPct >= 0.12 ? "c-r" : ""}`}>{pct(p.BBPct)}</td>
+                  <td className={`td-r mono`}>{pct(p.KPct)}</td>
+                  <td style={{ textAlign: "center" }}>
+                    {(() => { const cls = imp.tier === "ACE" ? "tier-ace" : imp.tier === "QUALITY" ? "tier-quality" : imp.tier === "AVERAGE" ? "tier-average" : imp.tier === "LIMITED" ? "tier-limited" : "tier-below"; return <span className={`tier-badge ${cls}`}>{imp.tier !== "LIMITED" && imp.emoji} {imp.tier}</span>; })()}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Section 6 — Full Roster Batting Table */}
+      <div className="sec-title">Full Roster Batting</div>
+      <div className="tbl-wrap" style={{ marginBottom: 18 }}>
+        <table>
+          <thead><tr>
+            {[["Player","Player",true],["PA","PA"],["AVG","AVG"],["OBP","OBP"],["SLG","SLG"],["OPS","OPS"],["HR","HR"],["SB","SB"],["KPct","K%"],["BBPct","BB%"],["GDP","GDP"]].map(([c,l,left]) => (
+              <Th key={c} c={c} label={l} s={bCol} d={bDir} fn={bToggle} left={!!left} />
+            ))}
+            <th style={{ textAlign: "center", fontSize: 11, fontFamily: "'Nunito Sans'", fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: ".8px", background: "var(--s2)", borderBottom: "2px solid var(--bd)", padding: "10px 8px" }}>Threat</th>
+          </tr></thead>
+          <tbody>
+            {bSort.map(r => {
+              const ht = hitterThreat(r);
+              const lowPA = r.PA < 8;
+              const cls = ht.tier === "ELITE" ? "tier-elite" : ht.tier === "HIGH" ? "tier-high" : ht.tier === "MODERATE" ? "tier-moderate" : ht.tier === "LIMITED" ? "tier-limited" : "tier-low";
+              return (
+                <tr key={r.Player} className={lowPA ? "muted-row" : ""} onClick={() => onPlayerClick && onPlayerClick(teamId, r.Player)} style={{ cursor: "pointer" }}>
+                  <td style={{ fontWeight: 500 }}>
+                    {r.Player}
+                    {r.isTwoWay && <span className="two-way-badge">2-WAY</span>}
+                  </td>
+                  <td className="td-r mono">{r.PA}</td>
+                  <td className={`td-r mono ${r.AVG >= 0.3 ? "c-g" : r.AVG < 0.2 ? "c-r" : ""}`}>{avg3(r.AVG)}</td>
+                  <td className={`td-r mono ${r.OBP >= 0.35 ? "c-g" : ""}`}>{avg3(r.OBP)}</td>
+                  <td className="td-r mono">{avg3(r.SLG)}</td>
+                  <td className={`td-r mono ${r.OPS >= 0.8 ? "c-g" : ""}`}>{avg3(r.OPS)}</td>
+                  <td className={`td-r mono ${r.HR > 0 ? "c-g" : ""}`}>{r.HR}</td>
+                  <td className="td-r mono c-b">{r.SB}</td>
+                  <td className={`td-r mono ${r.KPct >= 0.25 ? "c-r" : ""}`}>{pct(r.KPct)}</td>
+                  <td className="td-r mono">{pct(r.BBPct)}</td>
+                  <td className="td-r mono">{r.GDP}</td>
+                  <td style={{ textAlign: "center" }}><span className={`tier-badge ${cls}`}>{ht.tier}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Section 7 — Defensive Summary */}
+      {defTgts.length > 0 && (
+        <>
+          <div className="sec-title">Defensive Summary</div>
+          <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10 }}>Players with recorded errors. Small sample sizes — use as directional only.</div>
+          <div className="tbl-wrap">
+            <table>
+              <thead><tr>
+                <th style={{ textAlign: "left" }}>Player</th>
+                <th>Errors</th>
+                <th>E/G</th>
+              </tr></thead>
+              <tbody>
+                {defTgts.map(d => (
+                  <tr key={d.Player}>
+                    <td style={{ fontWeight: 500 }}>{d.Player}</td>
+                    <td className={`td-r mono ${d.Errors >= 3 ? "c-r" : ""}`}>{d.Errors}</td>
+                    <td className="td-r mono">{fix2(d.ePG)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── PLAYERS TAB ─────────────────────────────────────────────────────────────
+function PlayersTab({ data, teams, focalTeam, navTeam, navPlayer }) {
+  const [selTeam, setSelTeam] = useState(navTeam || focalTeam);
+  const [selPlayer, setSelPlayer] = useState(navPlayer || null);
+
+  // Sync if cross-nav props change
+  useEffect(() => { if (navTeam) setSelTeam(navTeam); }, [navTeam]);
+  useEffect(() => { if (navPlayer) setSelPlayer(navPlayer); }, [navPlayer]);
+
+  const batters = useMemo(() => aggBatting(data.batting.filter(r => r.Team === selTeam)), [data, selTeam]);
+  const pitchers = useMemo(() => aggPitching(data.pitching.filter(r => r.Team === selTeam)), [data, selTeam]);
+  const pitcherNames = new Set(pitchers.map(p => p.Pitcher));
+  const batterNames = new Set(batters.map(b => b.Player));
+  const twoWayNames = new Set([...pitcherNames].filter(n => batterNames.has(n)));
+
+  // Unified player list
+  const playerList = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    batters.forEach(b => {
+      seen.add(b.Player);
+      list.push({ name: b.Player, G: b.G, PA: b.PA, primary: avg3(b.OPS), primaryLabel: "OPS", secondary: avg3(b.AVG), secondaryLabel: "AVG", type: "batter", isTwoWay: twoWayNames.has(b.Player), tier: hitterThreat(b) });
+    });
+    pitchers.forEach(p => {
+      if (!seen.has(p.Pitcher)) {
+        list.push({ name: p.Pitcher, G: p.G, PA: 0, primary: fix2(p.ERA), primaryLabel: "ERA", secondary: fmtIP(p.Outs), secondaryLabel: "IP", type: "pitcher", isTwoWay: false, tier: pitcherImpact(p) });
+      }
+    });
+    return list.sort((a, b) => b.PA - a.PA || b.G - a.G);
+  }, [batters, pitchers, twoWayNames]);
+
+  // Player profile view
+  if (selPlayer) {
+    const batter = batters.find(b => b.Player === selPlayer);
+    const pitcher = pitchers.find(p => p.Pitcher === selPlayer);
+    const isTwoWay = batter && pitcher;
+    return (
+      <div>
+        <button className="back-btn" onClick={() => setSelPlayer(null)}>← Players</button>
+        <PlayerProfile data={data} playerName={selPlayer} teamId={selTeam}
+          batter={batter} pitcher={pitcher} isTwoWay={!!isTwoWay} />
+      </div>
+    );
+  }
+
+  // List view
+  return (
+    <div>
+      <div className="sec-title">Player Profiles</div>
+      <div style={{ marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".8px" }}>Team:</span>
+        <select className="mu-select" style={{ width: "auto", maxWidth: 200 }} value={selTeam} onChange={e => { setSelTeam(e.target.value); setSelPlayer(null); }}>
+          {teams.focal.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+      <div className="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th style={{ textAlign: "left" }}>Player</th>
+            <th>G</th>
+            <th>PA</th>
+            <th>Primary</th>
+            <th>Secondary</th>
+            <th style={{ textAlign: "center" }}>Tier</th>
+          </tr></thead>
+          <tbody>
+            {playerList.map(p => {
+              const cls = p.tier.tier === "ELITE" || p.tier.tier === "ACE" ? "tier-elite" : p.tier.tier === "HIGH" || p.tier.tier === "QUALITY" ? "tier-high" : p.tier.tier === "MODERATE" || p.tier.tier === "AVERAGE" ? "tier-moderate" : p.tier.tier === "LIMITED" ? "tier-limited" : "tier-low";
+              return (
+                <tr key={p.name} onClick={() => setSelPlayer(p.name)} style={{ cursor: "pointer" }}>
+                  <td style={{ fontWeight: 500 }}>
+                    {p.name}
+                    {p.isTwoWay && <span className="two-way-badge">2-WAY</span>}
+                  </td>
+                  <td className="td-r mono">{p.G}</td>
+                  <td className="td-r mono">{p.PA || "—"}</td>
+                  <td className="td-r mono">{p.primary} <span style={{ fontSize: 10, color: "var(--muted)" }}>{p.primaryLabel}</span></td>
+                  <td className="td-r mono">{p.secondary} <span style={{ fontSize: 10, color: "var(--muted)" }}>{p.secondaryLabel}</span></td>
+                  <td style={{ textAlign: "center" }}><span className={`tier-badge ${cls}`}>{p.tier.tier}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── PLAYER PROFILE ──────────────────────────────────────────────────────────
+function PlayerProfile({ data, playerName, teamId, batter, pitcher, isTwoWay }) {
+  // Recent form — batting
+  const recentBatting = useMemo(() => {
+    if (!batter) return null;
+    const games = data.batting.filter(r => r.Player === playerName && r.Team === teamId)
+      .sort((a, b) => String(b.Game_Date).localeCompare(String(a.Game_Date)));
+    const agg = (rows) => {
+      const a = aggBatting(rows)[0];
+      return a || null;
+    };
+    return { last3: agg(games.slice(0, 3)), last5: agg(games.slice(0, 5)), season: batter };
+  }, [data, playerName, teamId, batter]);
+
+  // Recent form — pitching
+  const recentPitching = useMemo(() => {
+    if (!pitcher) return null;
+    const games = data.pitching.filter(r => r.Pitcher === playerName && r.Team === teamId)
+      .sort((a, b) => String(b.Game_Date).localeCompare(String(a.Game_Date)));
+    const agg = (rows) => {
+      const a = aggPitching(rows)[0];
+      return a || null;
+    };
+    return { last3: agg(games.slice(0, 3)), last5: agg(games.slice(0, 5)), season: pitcher };
+  }, [data, playerName, teamId, pitcher]);
+
+  // Opponent splits — batting
+  const battingSplits = useMemo(() => {
+    if (!batter) return [];
+    const byOpp = {};
+    data.batting.filter(r => r.Player === playerName && r.Team === teamId).forEach(r => {
+      const opp = r.Opponent || "Unknown";
+      if (!byOpp[opp]) byOpp[opp] = [];
+      byOpp[opp].push(r);
+    });
+    return Object.entries(byOpp).map(([opp, rows]) => {
+      const a = aggBatting(rows)[0];
+      return { opp, ...a };
+    }).filter(s => s.PA >= 3).sort((a, b) => b.PA - a.PA);
+  }, [data, playerName, teamId, batter]);
+
+  // Opponent splits — pitching
+  const pitchingSplits = useMemo(() => {
+    if (!pitcher) return [];
+    const byOpp = {};
+    data.pitching.filter(r => r.Pitcher === playerName && r.Team === teamId).forEach(r => {
+      const opp = r.Opponent || "Unknown";
+      if (!byOpp[opp]) byOpp[opp] = [];
+      byOpp[opp].push(r);
+    });
+    return Object.entries(byOpp).map(([opp, rows]) => {
+      const a = aggPitching(rows)[0];
+      return { opp, ...a };
+    }).filter(s => s.Outs >= 3).sort((a, b) => b.Outs - a.Outs);
+  }, [data, playerName, teamId, pitcher]);
+
+  // Game log — batting
+  const batGameLog = useMemo(() => {
+    if (!batter) return [];
+    return data.batting.filter(r => r.Player === playerName && r.Team === teamId)
+      .sort((a, b) => String(b.Game_Date).localeCompare(String(a.Game_Date)))
+      .map(r => ({
+        date: r.Game_ID ? String(r.Game_ID).slice(0, 10) : String(r.Game_Date), opp: r.Opponent,
+        PA: num(r.PA), AB: num(r.AB), H: num(r.H), "2B": num(r["2B"]), "3B": num(r["3B"]),
+        HR: num(r.HR), RBI: num(r.RBI), R: num(r.R), SB: num(r.SB), BB: num(r.BB), K: num(r.K)
+      }));
+  }, [data, playerName, teamId, batter]);
+
+  // Game log — pitching
+  const pitGameLog = useMemo(() => {
+    if (!pitcher) return [];
+    return data.pitching.filter(r => r.Pitcher === playerName && r.Team === teamId)
+      .sort((a, b) => String(b.Game_Date).localeCompare(String(a.Game_Date)))
+      .map(r => ({
+        date: r.Game_ID ? String(r.Game_ID).slice(0, 10) : String(r.Game_Date), opp: r.Opponent,
+        IP: fmtIP(num(r.Outs_Recorded)), BF: num(r.BF), H: num(r.H_Allowed),
+        BB: num(r.BB_Allowed), K: num(r.K), R: num(r.R_Allowed)
+      }));
+  }, [data, playerName, teamId, pitcher]);
+
+  // Batting order context
+  const orderSlot = useMemo(() => {
+    if (!data.roster) return null;
+    const row = data.roster.find(r => r.Team_Code === teamId && r.Player === playerName && r.Order);
+    return row ? num(row.Order) : null;
+  }, [data, playerName, teamId]);
+
+  const batSort = useSort(batGameLog, "date");
+  const pitSort = useSort(pitGameLog, "date");
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="player-header">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="player-header-name">{playerName}</div>
+          {isTwoWay && <span className="two-way-badge">TWO-WAY PLAYER</span>}
+        </div>
+        <div className="player-header-sub">{teamId} · {batter ? batter.G : pitcher ? pitcher.G : 0} games</div>
+        <div className="player-header-stats">
+          {batter && (
+            <>
+              <div className="player-header-stat"><div className="player-header-stat-val">{avg3(batter.AVG)}</div><div className="player-header-stat-lbl">AVG</div></div>
+              <div className="player-header-stat"><div className="player-header-stat-val">{avg3(batter.OBP)}</div><div className="player-header-stat-lbl">OBP</div></div>
+              <div className="player-header-stat"><div className="player-header-stat-val">{avg3(batter.SLG)}</div><div className="player-header-stat-lbl">SLG</div></div>
+              <div className="player-header-stat"><div className="player-header-stat-val">{avg3(batter.OPS)}</div><div className="player-header-stat-lbl">OPS</div></div>
+              <div className="player-header-stat">
+                {(() => { const ht = hitterThreat(batter); const cls = ht.tier === "ELITE" ? "tier-elite" : ht.tier === "HIGH" ? "tier-high" : ht.tier === "MODERATE" ? "tier-moderate" : ht.tier === "LIMITED" ? "tier-limited" : "tier-low"; return <span className={`tier-badge ${cls}`} style={{ marginLeft: 0 }}>{ht.tier}</span>; })()}
+              </div>
+            </>
+          )}
+          {pitcher && (
+            <>
+              <div className="player-header-stat"><div className="player-header-stat-val">{fix2(pitcher.ERA)}</div><div className="player-header-stat-lbl">ERA</div></div>
+              <div className="player-header-stat"><div className="player-header-stat-val">{fix2(pitcher.WHIP)}</div><div className="player-header-stat-lbl">WHIP</div></div>
+              <div className="player-header-stat"><div className="player-header-stat-val">{fix1(clamp(pitcher.KBB, 20))}{pitcher.KBB > 20 ? "+" : ""}</div><div className="player-header-stat-lbl">K/BB</div></div>
+              <div className="player-header-stat">
+                {(() => { const imp = pitcherImpact(pitcher); const cls = imp.tier === "ACE" ? "tier-ace" : imp.tier === "QUALITY" ? "tier-quality" : imp.tier === "AVERAGE" ? "tier-average" : imp.tier === "LIMITED" ? "tier-limited" : "tier-below"; return <span className={`tier-badge ${cls}`} style={{ marginLeft: 0 }}>{imp.emoji} {imp.tier}</span>; })()}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Batting sections */}
+      {batter && (
+        <>
+          {/* Recent Form — Batting */}
+          {recentBatting && (
+            <>
+              <div className="sec-title">Recent Form — Batting</div>
+              <div className="form-cols">
+                {[
+                  { label: "Last 3 Games", d: recentBatting.last3 },
+                  { label: "Last 5 Games", d: recentBatting.last5 },
+                  { label: "Full Season", d: recentBatting.season },
+                ].map(({ label, d }) => (
+                  <div key={label} className="form-col">
+                    <div className="form-col-title">{label}</div>
+                    {d ? (
+                      <>
+                        <div className="form-col-row"><span className="form-col-label">AVG</span><span className="form-col-val">{avg3(d.AVG)}</span></div>
+                        <div className="form-col-row"><span className="form-col-label">OBP</span><span className="form-col-val">{avg3(d.OBP)}</span></div>
+                        <div className="form-col-row"><span className="form-col-label">OPS</span><span className="form-col-val">{avg3(d.OPS)}</span></div>
+                      </>
+                    ) : <div style={{ color: "var(--muted)", fontSize: 12 }}>No data</div>}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Stat Summary — Batting */}
+          <div className="sec-title">Batting Stats</div>
+          <div className="counting-grid">
+            {[
+              { l: "PA", v: batter.PA }, { l: "AB", v: batter.AB }, { l: "H", v: batter.H },
+              { l: "2B", v: batter["2B"] }, { l: "3B", v: batter["3B"] }, { l: "HR", v: batter.HR },
+              { l: "BB", v: batter.BB }, { l: "HBP", v: batter.HBP }, { l: "K", v: batter.K },
+              { l: "R", v: batter.R }, { l: "RBI", v: batter.RBI }, { l: "SB", v: batter.SB },
+              { l: "CS", v: batter.CS }, { l: "GDP", v: batter.GDP }, { l: "SAC", v: batter.SAC },
+            ].map(({ l, v }) => (
+              <div key={l} className="counting-item">
+                <div className="counting-val">{v}</div>
+                <div className="counting-lbl">{l}</div>
+              </div>
+            ))}
+          </div>
+          <div className="g4" style={{ marginBottom: 18 }}>
+            {[
+              { l: "AVG", v: avg3(batter.AVG) }, { l: "OBP", v: avg3(batter.OBP) },
+              { l: "SLG", v: avg3(batter.SLG) }, { l: "OPS", v: avg3(batter.OPS) },
+              { l: "K%", v: pct(safe(batter.K, batter.PA)) }, { l: "BB%", v: pct(safe(batter.BB, batter.PA)) },
+              { l: "SB%", v: batter.SB + batter.CS > 0 ? pct(safe(batter.SB, batter.SB + batter.CS)) : "—" },
+            ].map(({ l, v }) => (
+              <div key={l} className="stat-card">
+                <div className="stat-card-label">{l}</div>
+                <div className="stat-card-value" style={{ fontSize: 22 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Threat Score Breakdown */}
+          {batter.PA >= 8 && (() => {
+            const ht = hitterThreat(batter);
+            const rbiPerH = batter.H > 0 ? Math.min(batter.RBI / batter.H, 1) : 0;
+            const contact = 1 - safe(batter.K, batter.PA);
+            return (
+              <div className="score-breakdown" style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: ".8px", marginBottom: 8 }}>Threat Score: {ht.score.toFixed(3)} — {ht.tier}</div>
+                {[
+                  { l: "OBP", v: batter.OBP, w: 0.4, color: "var(--green)" },
+                  { l: "SLG", v: batter.SLG, w: 0.3, color: "var(--blue)" },
+                  { l: "RBI/H", v: rbiPerH, w: 0.15, color: "var(--gold)" },
+                  { l: "Contact", v: contact, w: 0.15, color: "var(--navy)" },
+                ].map(({ l, v, w, color }) => (
+                  <div key={l} className="score-bar-wrap">
+                    <div className="score-bar-label">{l} ({(w * 100).toFixed(0)}%)</div>
+                    <div className="score-bar-track">
+                      <div className="score-bar-fill" style={{ width: `${Math.min(v, 1) * 100}%`, background: color }} />
+                    </div>
+                    <div className="score-bar-val">{v.toFixed(3)}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Opponent Splits — Batting */}
+          {battingSplits.length > 0 && (
+            <>
+              <div className="sec-title">Opponent Splits — Batting</div>
+              <div className="tbl-wrap" style={{ marginBottom: 18 }}>
+                <table>
+                  <thead><tr>
+                    <th style={{ textAlign: "left" }}>Opponent</th>
+                    <th>PA</th><th>AVG</th><th>OBP</th><th>OPS</th><th>HR</th><th>RBI</th>
+                  </tr></thead>
+                  <tbody>
+                    {battingSplits.map(s => (
+                      <tr key={s.opp}>
+                        <td style={{ fontWeight: 500 }}>{s.opp}</td>
+                        <td className="td-r mono">{s.PA}</td>
+                        <td className="td-r mono">{avg3(s.AVG)}</td>
+                        <td className="td-r mono">{avg3(s.OBP)}</td>
+                        <td className="td-r mono">{avg3(s.OPS)}</td>
+                        <td className="td-r mono">{s.HR}</td>
+                        <td className="td-r mono">{s.RBI}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* Game Log — Batting */}
+          <div className="sec-title">Game Log — Batting</div>
+          <div className="tbl-wrap" style={{ marginBottom: 18 }}>
+            <table>
+              <thead><tr>
+                {[["date","Date",true],["opp","Opp",true],["PA","PA"],["AB","AB"],["H","H"],["2B","2B"],["3B","3B"],["HR","HR"],["RBI","RBI"],["R","R"],["SB","SB"],["BB","BB"],["K","K"]].map(([c,l,left]) => (
+                  <Th key={c} c={c} label={l} s={batSort.col} d={batSort.dir} fn={batSort.toggle} left={!!left} />
+                ))}
+              </tr></thead>
+              <tbody>
+                {batSort.sorted.map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ fontSize: 12 }}>{r.date}</td>
+                    <td style={{ fontWeight: 500, fontSize: 12 }}>{r.opp}</td>
+                    <td className="td-r mono">{r.PA}</td><td className="td-r mono">{r.AB}</td>
+                    <td className="td-r mono">{r.H}</td><td className="td-r mono">{r["2B"]}</td>
+                    <td className="td-r mono">{r["3B"]}</td>
+                    <td className={`td-r mono ${r.HR > 0 ? "c-g" : ""}`}>{r.HR}</td>
+                    <td className="td-r mono">{r.RBI}</td><td className="td-r mono">{r.R}</td>
+                    <td className="td-r mono c-b">{r.SB}</td>
+                    <td className="td-r mono">{r.BB}</td>
+                    <td className={`td-r mono ${r.K >= 2 ? "c-r" : ""}`}>{r.K}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* Pitching sections */}
+      {pitcher && (
+        <>
+          {/* Recent Form — Pitching */}
+          {recentPitching && (
+            <>
+              <div className="sec-title">Recent Form — Pitching</div>
+              <div className="form-cols">
+                {[
+                  { label: "Last 3 Games", d: recentPitching.last3 },
+                  { label: "Last 5 Games", d: recentPitching.last5 },
+                  { label: "Full Season", d: recentPitching.season },
+                ].map(({ label, d }) => (
+                  <div key={label} className="form-col">
+                    <div className="form-col-title">{label}</div>
+                    {d ? (
+                      <>
+                        <div className="form-col-row"><span className="form-col-label">ERA</span><span className="form-col-val">{fix2(d.ERA)}</span></div>
+                        <div className="form-col-row"><span className="form-col-label">WHIP</span><span className="form-col-val">{fix2(d.WHIP)}</span></div>
+                      </>
+                    ) : <div style={{ color: "var(--muted)", fontSize: 12 }}>No data</div>}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Stat Summary — Pitching */}
+          <div className="sec-title">Pitching Stats</div>
+          <div className="counting-grid">
+            {[
+              { l: "IP", v: fmtIP(pitcher.Outs) }, { l: "G", v: pitcher.G }, { l: "BF", v: pitcher.BF },
+              { l: "H", v: pitcher.H }, { l: "BB", v: pitcher.BB }, { l: "K", v: pitcher.K },
+              { l: "R", v: pitcher.R }, { l: "HR", v: pitcher.HR }, { l: "WP", v: pitcher.WP },
+            ].map(({ l, v }) => (
+              <div key={l} className="counting-item">
+                <div className="counting-val">{v}</div>
+                <div className="counting-lbl">{l}</div>
+              </div>
+            ))}
+          </div>
+          <div className="g4" style={{ marginBottom: 14 }}>
+            {[
+              { l: "ERA", v: fix2(pitcher.ERA) }, { l: "WHIP", v: fix2(pitcher.WHIP) },
+              { l: "K/9", v: fix1(pitcher.Outs > 0 ? (pitcher.K / (pitcher.Outs / 3)) * 9 : 0) },
+              { l: "BB/9", v: fix1(pitcher.Outs > 0 ? (pitcher.BB / (pitcher.Outs / 3)) * 9 : 0) },
+              { l: "K/BB", v: fix1(clamp(pitcher.KBB, 20)) + (pitcher.KBB > 20 ? "+" : "") },
+              { l: "K%", v: pct(pitcher.KPct) }, { l: "BB%", v: pct(pitcher.BBPct) },
+            ].map(({ l, v }) => (
+              <div key={l} className="stat-card">
+                <div className="stat-card-label">{l}</div>
+                <div className="stat-card-value" style={{ fontSize: 22 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Hit Type Breakdown */}
+          {pitcher.H > 0 && (() => {
+            const total = pitcher["1B"] + pitcher["2B"] + pitcher["3B"] + pitcher.HR;
+            if (total === 0) return null;
+            const segs = [
+              { l: "1B", v: pitcher["1B"], c: "var(--blue)" },
+              { l: "2B", v: pitcher["2B"], c: "var(--gold)" },
+              { l: "3B", v: pitcher["3B"], c: "var(--amber)" },
+              { l: "HR", v: pitcher.HR, c: "var(--red)" },
+            ].filter(s => s.v > 0);
+            return (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: ".8px", marginBottom: 6 }}>Contact Profile — Hits Allowed</div>
+                <div className="hit-type-bar">
+                  {segs.map(s => (
+                    <div key={s.l} className="hit-type-seg" style={{ width: `${(s.v / total) * 100}%`, background: s.c }}>
+                      {(s.v / total) >= 0.12 && s.l}
+                    </div>
+                  ))}
+                </div>
+                <div className="hit-type-legend">
+                  {segs.map(s => (
+                    <div key={s.l} className="hit-type-legend-item">
+                      <div className="hit-type-legend-dot" style={{ background: s.c }} />
+                      {s.l}: {s.v} ({pct(s.v / total)})
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Role + avg IP */}
+          <div style={{ fontSize: 13, color: "var(--text2)", marginBottom: 14 }}>
+            <span style={{ fontWeight: 700 }}>Role:</span> {pitcherRole(pitcher)} · Avg {fmtIP(Math.round(pitcher.Outs / pitcher.G))} IP per outing
+          </div>
+
+          {/* Impact Score Breakdown */}
+          {pitcher.Outs >= 9 && (() => {
+            const imp = pitcherImpact(pitcher);
+            const IP = pitcher.Outs / 3;
+            const kNorm = Math.min((pitcher.K / IP) * 9 / 15, 1);
+            const controlNorm = Math.max(1 - ((pitcher.BB / IP) * 9) / 10, 0);
+            const eraNorm = Math.max(1 - pitcher.ERA / 12, 0);
+            const whipNorm = Math.max(1 - pitcher.WHIP / 3, 0);
+            return (
+              <div className="score-breakdown" style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: ".8px", marginBottom: 8 }}>Impact Score: {imp.score.toFixed(3)} — {imp.emoji} {imp.tier}</div>
+                {[
+                  { l: "K/9", v: kNorm, w: 0.3, color: "var(--green)" },
+                  { l: "Control", v: controlNorm, w: 0.25, color: "var(--blue)" },
+                  { l: "ERA", v: eraNorm, w: 0.25, color: "var(--gold)" },
+                  { l: "WHIP", v: whipNorm, w: 0.2, color: "var(--navy)" },
+                ].map(({ l, v, w, color }) => (
+                  <div key={l} className="score-bar-wrap">
+                    <div className="score-bar-label">{l} ({(w * 100).toFixed(0)}%)</div>
+                    <div className="score-bar-track">
+                      <div className="score-bar-fill" style={{ width: `${Math.min(v, 1) * 100}%`, background: color }} />
+                    </div>
+                    <div className="score-bar-val">{v.toFixed(3)}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Opponent Splits — Pitching */}
+          {pitchingSplits.length > 0 && (
+            <>
+              <div className="sec-title">Opponent Splits — Pitching</div>
+              <div className="tbl-wrap" style={{ marginBottom: 18 }}>
+                <table>
+                  <thead><tr>
+                    <th style={{ textAlign: "left" }}>Opponent</th>
+                    <th>IP</th><th>ERA</th><th>WHIP</th><th>K</th><th>BB</th>
+                  </tr></thead>
+                  <tbody>
+                    {pitchingSplits.map(s => (
+                      <tr key={s.opp}>
+                        <td style={{ fontWeight: 500 }}>{s.opp}</td>
+                        <td className="td-r mono">{fmtIP(s.Outs)}</td>
+                        <td className="td-r mono">{fix2(s.ERA)}</td>
+                        <td className="td-r mono">{fix2(s.WHIP)}</td>
+                        <td className="td-r mono">{s.K}</td>
+                        <td className="td-r mono">{s.BB}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* Game Log — Pitching */}
+          <div className="sec-title">Game Log — Pitching</div>
+          <div className="tbl-wrap" style={{ marginBottom: 18 }}>
+            <table>
+              <thead><tr>
+                {[["date","Date",true],["opp","Opp",true],["IP","IP"],["BF","BF"],["H","H"],["BB","BB"],["K","K"],["R","R"]].map(([c,l,left]) => (
+                  <Th key={c} c={c} label={l} s={pitSort.col} d={pitSort.dir} fn={pitSort.toggle} left={!!left} />
+                ))}
+              </tr></thead>
+              <tbody>
+                {pitSort.sorted.map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ fontSize: 12 }}>{r.date}</td>
+                    <td style={{ fontWeight: 500, fontSize: 12 }}>{r.opp}</td>
+                    <td className="td-r mono">{r.IP}</td><td className="td-r mono">{r.BF}</td>
+                    <td className="td-r mono">{r.H}</td><td className="td-r mono">{r.BB}</td>
+                    <td className={`td-r mono ${r.K >= 5 ? "c-g" : ""}`}>{r.K}</td>
+                    <td className={`td-r mono ${r.R >= 3 ? "c-r" : ""}`}>{r.R}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* Batting Order Context */}
+      {orderSlot && (
+        <div style={{ fontSize: 13, color: "var(--text2)", marginTop: 8 }}>
+          Typically bats <strong>{orderSlot}</strong> in the lineup.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── MATCHUP TAB ──────────────────────────────────────────────────────────────
 function MatchupTab({ data, teams, defaultTeamA, defaultTeamB }) {
   const [teamA, setTeamA] = useState(defaultTeamA || teams.focal[0] || teams.all[0] || "");
@@ -1846,6 +2828,10 @@ export default function App() {
   const [focalTeam, setFocalTeam] = useState("");
   const [drillTeam, setDrillTeam] = useState(null);   // League drill-down
   const [matchupForTeam, setMatchupForTeam] = useState(null); // cross-nav
+  const [teamsViewTeam, setTeamsViewTeam] = useState(null);       // Teams tab drill-down
+  const [playersViewPlayer, setPlayersViewPlayer] = useState(null); // Players tab drill-down
+  const [playersNavTeam, setPlayersNavTeam] = useState(null);     // cross-nav from Teams → Players
+  const [playersNavPlayer, setPlayersNavPlayer] = useState(null); // cross-nav from Teams → Players
   const fileRef = useRef(null);
 
   const teams = useMemo(() => data ? classifyTeams(data) : { focal: [], opponents: [], all: [] }, [data]);
@@ -1889,6 +2875,13 @@ export default function App() {
   const goToMatchup = useCallback(opponentId => {
     setMatchupForTeam(opponentId);
     setTab("Matchup");
+  }, []);
+
+  // Cross-tab navigation: from team profile → player profile
+  const goToPlayer = useCallback((teamId, playerName) => {
+    setPlayersNavTeam(teamId);
+    setPlayersNavPlayer(playerName);
+    setTab("Players");
   }, []);
 
   // When we switch to Matchup via goToMatchup, pass default team B
@@ -1946,9 +2939,9 @@ export default function App() {
         </div>
 
         <div className="tabs">
-          {["League", "Matchup", "Chat"].map(t => (
+          {["League", "Matchup", "Teams", "Players", "Chat"].map(t => (
             <div key={t} className={`tab ${tab === t ? "on" : ""}`}
-              onClick={() => { setTab(t); if (t !== "League") setDrillTeam(null); }}>
+              onClick={() => { setTab(t); if (t !== "League") setDrillTeam(null); if (t !== "Teams") setTeamsViewTeam(null); if (t !== "Players") { setPlayersViewPlayer(null); setPlayersNavTeam(null); setPlayersNavPlayer(null); } }}>
               {t}
             </div>
           ))}
@@ -1969,6 +2962,8 @@ export default function App() {
               defaultTeamA={focalTeam}
               defaultTeamB={matchupDefaultB} />
           )}
+          {tab === "Teams" && <TeamsTab data={data} teams={teams} focalTeam={focalTeam} onPlayerClick={goToPlayer} />}
+          {tab === "Players" && <PlayersTab data={data} teams={teams} focalTeam={focalTeam} navTeam={playersNavTeam} navPlayer={playersNavPlayer} />}
           {tab === "Chat" && <ChatTab data={data} />}
         </div>
       </div>
