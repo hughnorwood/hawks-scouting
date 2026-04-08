@@ -1328,6 +1328,26 @@ function TeamProfile({ data, teamId, teams, onBack, onMatchup }) {
   );
 }
 
+// ─── TEAMS TAB (shell) ───────────────────────────────────────────────────────
+function TeamsTab({ data, teams, focalTeam }) {
+  return (
+    <div>
+      <div className="sec-title">Team Profiles</div>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>Select a focal team above to view full team profile. Coming soon.</p>
+    </div>
+  );
+}
+
+// ─── PLAYERS TAB (shell) ─────────────────────────────────────────────────────
+function PlayersTab({ data, teams, focalTeam }) {
+  return (
+    <div>
+      <div className="sec-title">Player Profiles</div>
+      <p style={{ color: "var(--muted)", fontSize: 13 }}>Select a focal team above to browse player profiles. Coming soon.</p>
+    </div>
+  );
+}
+
 // ─── MATCHUP TAB ──────────────────────────────────────────────────────────────
 function MatchupTab({ data, teams, defaultTeamA, defaultTeamB }) {
   const [teamA, setTeamA] = useState(defaultTeamA || teams.focal[0] || teams.all[0] || "");
@@ -1846,6 +1866,8 @@ export default function App() {
   const [focalTeam, setFocalTeam] = useState("");
   const [drillTeam, setDrillTeam] = useState(null);   // League drill-down
   const [matchupForTeam, setMatchupForTeam] = useState(null); // cross-nav
+  const [teamsViewTeam, setTeamsViewTeam] = useState(null);       // Teams tab drill-down
+  const [playersViewPlayer, setPlayersViewPlayer] = useState(null); // Players tab drill-down
   const fileRef = useRef(null);
 
   const teams = useMemo(() => data ? classifyTeams(data) : { focal: [], opponents: [], all: [] }, [data]);
@@ -1946,9 +1968,9 @@ export default function App() {
         </div>
 
         <div className="tabs">
-          {["League", "Matchup", "Chat"].map(t => (
+          {["League", "Matchup", "Teams", "Players", "Chat"].map(t => (
             <div key={t} className={`tab ${tab === t ? "on" : ""}`}
-              onClick={() => { setTab(t); if (t !== "League") setDrillTeam(null); }}>
+              onClick={() => { setTab(t); if (t !== "League") setDrillTeam(null); if (t !== "Teams") setTeamsViewTeam(null); if (t !== "Players") setPlayersViewPlayer(null); }}>
               {t}
             </div>
           ))}
@@ -1969,6 +1991,8 @@ export default function App() {
               defaultTeamA={focalTeam}
               defaultTeamB={matchupDefaultB} />
           )}
+          {tab === "Teams" && <TeamsTab data={data} teams={teams} focalTeam={focalTeam} />}
+          {tab === "Players" && <PlayersTab data={data} teams={teams} focalTeam={focalTeam} />}
           {tab === "Chat" && <ChatTab data={data} />}
         </div>
       </div>
