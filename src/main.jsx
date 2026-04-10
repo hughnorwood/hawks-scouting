@@ -1,5 +1,5 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./hawks_v5.jsx";
+import App from "../app/hawks.jsx";
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);

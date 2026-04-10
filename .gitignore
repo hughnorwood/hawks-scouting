@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+
+# Scraper session — contains authenticated tokens, never commit
+pipeline/gc_session.json
+pipeline/raw/
+
+# Legacy scraper output directory
+scraper_output/

@@ -1,0 +1,17 @@
+{
+  "focal_teams": [
+    { "name": "River Hill",    "gc_team_id": "L3KUEclXyQ8R", "code": "RVRH", "primary": true },
+    { "name": "Centennial",    "gc_team_id": "0leb6orf3scs", "code": "CNTN" },
+    { "name": "Glenelg",       "gc_team_id": "sTcS0b1BQ27u", "code": "GLNL" },
+    { "name": "Huntingtown",   "gc_team_id": "gB96NCUVyaZq", "code": "HNTN" },
+    { "name": "Parkside",      "gc_team_id": "zspMoWf0CixS", "code": "PRKS" },
+    { "name": "Southern",      "gc_team_id": "Y2KOgzm4DqF3", "code": "STHR" },
+    { "name": "Fallston",      "gc_team_id": "g6B8BXCbZuMF", "code": "FLLS" },
+    { "name": "Middletown",    "gc_team_id": "AadMAYNPwJg8", "code": "MDLT" },
+    { "name": "Hereford",      "gc_team_id": "f4s8oFycsPlF", "code": "HRFD" },
+    { "name": "North Harford", "gc_team_id": "lwW88NNGvnAE", "code": "NHRF" },
+    { "name": "Century",       "gc_team_id": "67lmIIVaxWMx", "code": "CNTY" },
+    { "name": "Kent Island",   "gc_team_id": "HosNhxk1NroJ", "code": "KTIS" },
+    { "name": "Long Reach",    "gc_team_id": "6Q2VVSbv2fQQ", "code": "LNRC" }
+  ]
+}

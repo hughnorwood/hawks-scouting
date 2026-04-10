@@ -1,0 +1,119 @@
+name: Daily Pipeline
+
+on:
+  schedule:
+    # 6:00 AM ET = 10:00 or 11:00 UTC depending on DST
+    # Using 10:00 UTC (6 AM EDT, 5 AM EST during winter)
+    - cron: "0 10 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install openpyxl anthropic python-dotenv
+
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          playwright install chromium
+
+      # ── Restore GC session from cache ──
+      - name: Restore GC session
+        uses: actions/cache/restore@v4
+        id: gc-session-cache
+        with:
+          path: pipeline/gc_session.json
+          key: gc-session-v1
+
+      # ── Scrape ──
+      - name: Scrape new games from GameChanger
+        env:
+          GC_USERNAME: ${{ secrets.GC_USERNAME }}
+          GC_PASSWORD: ${{ secrets.GC_PASSWORD }}
+        run: |
+          mkdir -p pipeline/raw
+          python pipeline/scrape.py
+
+      # ── Save updated GC session to cache ──
+      - name: Save GC session
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: pipeline/gc_session.json
+          key: gc-session-v1-${{ github.run_id }}
+
+      # ── Transcribe each new raw file ──
+      - name: Transcribe new games
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          shopt -s nullglob
+          RAW_FILES=(pipeline/raw/*.txt)
+
+          if [ ${#RAW_FILES[@]} -eq 0 ]; then
+            echo "No raw files to transcribe."
+            echo "NEW_GAMES=" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          NEW_GAME_FILES=""
+          for raw_file in "${RAW_FILES[@]}"; do
+            echo "::group::Transcribing $raw_file"
+            python pipeline/transcribe.py "$raw_file"
+            echo "::endgroup::"
+          done
+
+          # Identify newly created game files (untracked by git)
+          NEW_GAME_FILES=$(git ls-files --others --exclude-standard -- games/*.md || true)
+          echo "New game files: $NEW_GAME_FILES"
+          echo "NEW_GAMES<<EOF" >> "$GITHUB_ENV"
+          echo "$NEW_GAME_FILES" >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
+
+      # ── Ingest each NEW game markdown (skip already-committed files) ──
+      - name: Ingest new games
+        if: env.NEW_GAMES != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          while IFS= read -r md_file; do
+            [ -z "$md_file" ] && continue
+            [ -f "$md_file" ] || continue
+            echo "::group::Ingesting $md_file"
+            python pipeline/ingest.py "$md_file"
+            echo "::endgroup::"
+          done <<< "$NEW_GAMES"
+
+      # ── Commit and push if anything changed ──
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage new/changed pipeline output files
+          git add -A games/ data/ public/repository.json
+
+          if git diff --cached --quiet; then
+            echo "No new data to commit — exiting cleanly."
+            exit 0
+          fi
+
+          NEW_GAMES_COUNT=$(git diff --cached --name-only -- games/ | wc -l | tr -d ' ')
+          git commit -m "pipeline: add ${NEW_GAMES_COUNT} new game(s)
+
+          Automated daily pipeline run."
+
+          git push
+          echo "Pushed ${NEW_GAMES_COUNT} new game(s) to repository."
