@@ -1,12 +1,7 @@
 name: Seed GC Session
 
 on:
-  workflow_dispatch:
-    inputs:
-      session_b64:
-        description: "Base64-encoded gc_session.json contents"
-        required: true
-        type: string
+  workflow_dispatch: {}
 
 jobs:
   seed:
@@ -15,11 +10,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Write session file
+      - name: Check for session file
         run: |
-          mkdir -p pipeline
-          echo "${{ inputs.session_b64 }}" | base64 -d > pipeline/gc_session.json
-          echo "Session file size: $(wc -c < pipeline/gc_session.json) bytes"
+          if [ ! -f pipeline/gc_session.json ]; then
+            echo "ERROR: pipeline/gc_session.json not found in repo."
+            echo "Commit it temporarily, run this workflow, then remove it."
+            exit 1
+          fi
+          echo "Session file found: $(wc -c < pipeline/gc_session.json) bytes"
 
       - name: Save to cache
         uses: actions/cache/save@v4
