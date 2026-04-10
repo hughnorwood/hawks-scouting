@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -162,6 +163,11 @@ def call_claude(system_prompt, game_md_text, focal_team, existing_game_ids):
 
     text = response.content[0].text
     print(f"  Response: {len(text):,} chars, {response.usage.input_tokens} input / {response.usage.output_tokens} output tokens")
+
+    # Rate-limit courtesy: 60s delay between API calls during multi-game backfills
+    print("  Waiting 60s (rate-limit delay)...")
+    time.sleep(60)
+
     return text
 
 
