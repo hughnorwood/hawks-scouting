@@ -1,0 +1,28 @@
+name: Seed GC Session
+
+on:
+  workflow_dispatch:
+    inputs:
+      session_b64:
+        description: "Base64-encoded gc_session.json contents"
+        required: true
+        type: string
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Write session file
+        run: |
+          mkdir -p pipeline
+          echo "${{ inputs.session_b64 }}" | base64 -d > pipeline/gc_session.json
+          echo "Session file size: $(wc -c < pipeline/gc_session.json) bytes"
+
+      - name: Save to cache
+        uses: actions/cache/save@v4
+        with:
+          path: pipeline/gc_session.json
+          key: gc-session-v1
