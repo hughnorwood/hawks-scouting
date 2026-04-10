@@ -213,13 +213,31 @@ def parse_schedule(page, team_id, team_code):
                         continue
                     # Check if this is a game entry (starts with vs. or @)
                     if game_line.startswith("vs.") or game_line.startswith("@"):
-                        result = lines[j + 1].strip() if j + 1 < len(lines) else ""
+                        # Scan forward past optional location lines to find the result
+                        # Results look like "W 5-2", "L 3-4", "T 4-4", or a time "4:15 PM"
+                        result = ""
+                        k = j + 1
+                        while k < len(lines):
+                            candidate = lines[k].strip()
+                            if not candidate:
+                                k += 1
+                                continue
+                            if re.match(r"^[WLT] \d+-\d+$", candidate) or re.match(r"^\d{1,2}:\d{2}\s*(AM|PM)$", candidate):
+                                result = candidate
+                                k += 1
+                                break
+                            if candidate.startswith("at ") or candidate.startswith("No location"):
+                                # Location line — skip it
+                                k += 1
+                                continue
+                            # Unknown line — treat as end of this game entry
+                            break
                         text_games.append({
                             "date": date_str,
                             "opponent_line": game_line,
                             "result": result,
                         })
-                        j += 2
+                        j = k
                     else:
                         break
             i += 1
