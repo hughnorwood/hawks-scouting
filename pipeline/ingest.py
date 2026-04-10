@@ -76,12 +76,43 @@ def get_existing_game_ids():
 
 
 def determine_focal_team(game_md_text, config):
-    """Determine the focal team based on which focal team codes appear in the header."""
+    """Determine the focal team from the Away/Home team codes in the game header.
+
+    Only considers team codes that appear as actual participants (in the Final Score
+    line, line score table, or Game_ID), not incidental mentions in filenames or text.
+    """
     focal_codes = {t["code"] for t in config["focal_teams"]}
     primary_code = next((t["code"] for t in config["focal_teams"] if t.get("primary")), "RVRH")
 
-    header = game_md_text[:2000]
-    found_focal = [code for code in focal_codes if code in header]
+    header = game_md_text[:3000]
+
+    # Extract the two team codes that actually played in this game
+    playing_teams = set()
+
+    # Try Game_ID pattern: YYYY-MM-DD_AWAY_at_HOME
+    m = re.search(r'\d{4}-\d{2}-\d{2}_([A-Z]{3,5})_at_([A-Z]{3,5})', header)
+    if m:
+        playing_teams = {m.group(1), m.group(2)}
+
+    # Try Final Score line: "AWAY NN - HOME NN" or "AWAY NN, HOME NN"
+    if not playing_teams:
+        m = re.search(r'Final\s+[Ss]core.*?([A-Z]{3,5})\s+\d+\s*[-–,]\s*([A-Z]{3,5})\s+\d+', header)
+        if m:
+            playing_teams = {m.group(1), m.group(2)}
+
+    # Try line score table
+    if not playing_teams:
+        team_codes = re.findall(r'\|\s*([A-Z]{3,5})\s*\|', header)
+        if len(team_codes) >= 2:
+            playing_teams = {team_codes[0], team_codes[1]}
+
+    # Intersect with focal teams
+    found_focal = list(playing_teams & focal_codes)
+
+    if not found_focal:
+        # Fallback: broader search, but only for codes that are plausibly team codes
+        found_focal = [code for code in focal_codes
+                       if re.search(r'\b' + code + r'\b', header)]
 
     if not found_focal:
         sys.exit("Could not determine focal team — no focal team codes found in game header")
