@@ -171,8 +171,8 @@ def main():
     # Check for duplicate
     out_file = GAMES_DIR / f"{game_id}.md"
     if out_file.exists():
-        print(f"\nWARNING: {out_file} already exists. Not overwriting.")
-        sys.exit(1)
+        print(f"\nSKIP: {out_file} already exists. Not overwriting.")
+        sys.exit(0)
 
     GAMES_DIR.mkdir(parents=True, exist_ok=True)
     out_file.write_text(markdown)
