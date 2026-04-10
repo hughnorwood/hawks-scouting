@@ -285,13 +285,12 @@ Complete each step and verify before starting the next.
 - Writes updated Excel back in place
 - Calls export.py after successful gate pass
 
-**Step 6 — daily.yml** ⏳ next
-- Cron schedule (suggested: 6am ET daily during season)
-- Restore `gc_session.json` from GitHub Actions cache before scrape; save updated session back to cache after
-- Runs scrape → transcribe → ingest → export → commit → push
-- On any failure: exit nonzero → GitHub Actions sends failure email to repo owner
-- Secrets required: `GC_USERNAME`, `GC_PASSWORD`, `ANTHROPIC_API_KEY`
-- Only commit and push if new files were actually written — skip commit if no new games found
+**Step 6 — daily.yml** ✅ complete
+- Cron schedule: 6am ET daily + manual `workflow_dispatch`
+- GC session restored from / saved to Actions cache — no login on each run
+- Scrape → transcribe → ingest → export → commit chain confirmed working
+- Duplicate guard fires cleanly — no commit, exit 0 when no new games
+- All 3 secrets wired: `GC_USERNAME`, `GC_PASSWORD`, `ANTHROPIC_API_KEY`
 
 ---
 
@@ -315,7 +314,7 @@ Complete each step and verify before starting the next.
 - ✅ **Step 3 complete** — `scrape.py` fully working with session persistence (`gc_session.json`) and `--dry-run` flag; GC rate-limit resolved
 - ✅ **Step 4 complete** — `transcribe.py` tested; produces full structured markdown from raw GC text (19,417 chars confirmed on Glenelg-Guilford game); Game_ID parsed from markdown output to construct filename
 - ✅ **Step 5 complete** — `ingest.py` tested; duplicate guard fires correctly for existing games; full ingest of new game passes all 6 gates and writes correctly (28 batting + 7 pitching + 6 fielding rows confirmed); calls `export.py` automatically on success
-- ⏳ **Step 6** — `daily.yml` not yet built
+- ✅ **Step 6 complete** — `daily.yml` live; cron 6am ET + manual `workflow_dispatch`; GC session cached in Actions; scrape → transcribe → ingest → export → commit chain confirmed; duplicate guard fires cleanly with exit 0; all 3 secrets wired
 - All 13 GC team IDs and App Team_Codes confirmed (see table above)
 - Prompts are at v4 (transcribe) and v6 (ingest) — mature, do not modify without careful testing
 - Model confirmed: `claude-sonnet-4-20250514` for both transcription and ingestion
