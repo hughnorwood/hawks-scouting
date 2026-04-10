@@ -20,6 +20,7 @@ Treat every entry as **what the scorer believed happened**. Do not correct, rein
 - **Jersey-number players:** Preserve numbers exactly (e.g., #8, #21). Do not infer names. Note in the Game Header if an entire team uses jersey numbers only.
 - **Undocumented pitching transitions:** If a pitcher is identified via attribution in batter descriptions (e.g., "R Walsh pitching") without a preceding "Lineup changed" entry, record them as the active pitcher for those plate appearances and flag the missing formal lineup note in Data Integrity Flags.
 - **Scorer correction notations:** If the log contains "Play Edit" language, duplicate lineup entries, circular substitutions, or chained courtesy runners, record all entries exactly as logged and flag each instance in Data Integrity Flags with a description of the apparent correction attempt.
+- In GC play-by-play logs, a "next batter" header line may appear immediately before or alongside the final play of the preceding batter. The active batter for any play is the player named in the play description itself, not the header line that follows it. When a play description names a specific player (e.g., "J Norwood homers"), that player is the batter of record for that plate appearance regardless of any adjacent header naming a different player.
 
 ---
 
