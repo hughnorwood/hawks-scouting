@@ -197,12 +197,6 @@ These go in `pipeline/config.json`. Teams without an App_Code yet need codes con
 
 **Note:** `RVRH` is the primary focal team and the default `Focal_Team` value for River Hill home and away games.
 
-### Staff Account — Schedule Page Differences
-
-The GC credentials used for scraping (`GC_USERNAME`) belong to a staff/administrative account on the River Hill team. This means the RVRH schedule page renders additional data compared to other teams — specifically, venue/location lines (e.g., "at River Hill High School") appear between the opponent name and the W/L result for every game. Non-staff team pages do not include these location lines.
-
-The schedule parser handles this by scanning forward past any `"at ..."` or `"No location"` lines to find the result. If a future team is added where the account also has staff access, the same pattern will apply automatically.
-
 ### Session Persistence — Critical
 
 Playwright must persist browser session state to `pipeline/gc_session.json` after every successful login. On subsequent runs it loads from this file instead of logging in again. Login only occurs if `gc_session.json` is missing or the session is found to be expired (detected by redirect to login page after navigation attempt).
@@ -300,6 +294,16 @@ Complete each step and verify before starting the next.
 
 ---
 
+## Prompt Version History
+
+| File | Version | Change |
+|---|---|---|
+| `prompts/transcribe.md` | v4.0 | Original — full GC transcription engine |
+| `prompts/transcribe.md` | v4.1 | Added batter ID rule: active batter is player named in play description, not adjacent "next batter" header. Fixes GC format misattribution (J Norwood HR attributed to H Zhang). |
+| `prompts/ingest.md` | v6.0 | Current — full ingestion engine with 6-gate verification |
+
+---
+
 ## Key Constraints and Gotchas
 
 - **Never re-ingest a game.** The duplicate guard in the ingest prompt is the safety net, but the scraper should never even attempt it. Game_ID filename check is the first line of defense.
@@ -307,6 +311,8 @@ Complete each step and verify before starting the next.
 - **Never modify the Derivation_Rules sheet.**
 - **Gate failures are hard stops.** Do not write partial data. Do not proceed to the next step.
 - **The prompts are the source of truth.** `prompts/transcribe.md` and `prompts/ingest.md` are versioned files. Do not inline their logic into Python scripts — always read and pass them as prompts.
+- **Batter misattribution is the primary transcription failure mode.** GC logs show a "next batter up" header immediately before the final play of the preceding batter. The transcription prompt (v4.1) explicitly handles this — the active batter is always the player named in the play description, never the adjacent header. If a misattribution is suspected, check the raw file in `pipeline/raw/` against the markdown play log before re-ingesting.
+- **Team-level gates do not catch misattributions.** G1-G4 verify team hit and run totals — a HR misattributed to the wrong player can pass all gates if the totals still balance. Per-player PA reconciliation is the safeguard (see ingest.py).
 - **Courtesy runner credits.** The ingestion prompt handles this correctly. Do not second-guess it.
 - **K_L + K_S must always equal K** for every pitcher row. The ingestion prompt enforces this.
 - **The `focal` team classification** in the app uses ≥4 appearances as `Focal_Team` in Game_Log. RVRH is the primary focal team. Do not hardcode team names — read from data.
@@ -322,7 +328,7 @@ Complete each step and verify before starting the next.
 - ✅ **Step 5 complete** — `ingest.py` tested; duplicate guard fires correctly for existing games; full ingest of new game passes all 6 gates and writes correctly (28 batting + 7 pitching + 6 fielding rows confirmed); calls `export.py` automatically on success
 - ✅ **Step 6 complete** — `daily.yml` live; cron 6am ET + manual `workflow_dispatch`; GC session cached in Actions; scrape → transcribe → ingest → export → commit chain confirmed; duplicate guard fires cleanly with exit 0; all 3 secrets wired
 - All 13 GC team IDs and App Team_Codes confirmed (see table above)
-- Prompts are at v4 (transcribe) and v6 (ingest) — mature, do not modify without careful testing
+- Prompts: transcribe at **v4.1**, ingest at **v6** — mature, do not modify without careful testing
 - Model confirmed: `claude-sonnet-4-20250514` for both transcription and ingestion
 
 ## Architecture Note — Ingestion Redesign
