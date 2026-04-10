@@ -197,6 +197,12 @@ These go in `pipeline/config.json`. Teams without an App_Code yet need codes con
 
 **Note:** `RVRH` is the primary focal team and the default `Focal_Team` value for River Hill home and away games.
 
+### Staff Account — Schedule Page Differences
+
+The GC credentials used for scraping (`GC_USERNAME`) belong to a staff/administrative account on the River Hill team. This means the RVRH schedule page renders additional data compared to other teams — specifically, venue/location lines (e.g., "at River Hill High School") appear between the opponent name and the W/L result for every game. Non-staff team pages do not include these location lines.
+
+The schedule parser handles this by scanning forward past any `"at ..."` or `"No location"` lines to find the result. If a future team is added where the account also has staff access, the same pattern will apply automatically.
+
 ### Session Persistence — Critical
 
 Playwright must persist browser session state to `pipeline/gc_session.json` after every successful login. On subsequent runs it loads from this file instead of logging in again. Login only occurs if `gc_session.json` is missing or the session is found to be expired (detected by redirect to login page after navigation attempt).
