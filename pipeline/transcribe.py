@@ -140,6 +140,32 @@ def transcribe(raw_text, system_prompt):
     return text
 
 
+def pre_check_duplicate(raw_filename):
+    """Check if a game for this team+date already exists in games/ BEFORE calling the API.
+
+    Raw filenames follow the pattern: TEAM_YYYY-MM-DD_opponent_uuid.txt
+    Existing game files follow: YYYY-MM-DD_AWAY_at_HOME.md
+    If any .md file in games/ contains both the date and team code, skip.
+    """
+    # Extract team code and date from raw filename
+    m = re.match(r"([A-Z]{3,5})_(\d{4}-\d{2}-\d{2})_", raw_filename)
+    if not m:
+        return False, None
+
+    team_code = m.group(1)
+    date_str = m.group(2)
+
+    if not GAMES_DIR.exists():
+        return False, None
+
+    for md_file in GAMES_DIR.glob("*.md"):
+        name = md_file.stem
+        if date_str in name and team_code in name:
+            return True, name
+
+    return False, None
+
+
 def main():
     if len(sys.argv) < 2:
         sys.exit("Usage: python pipeline/transcribe.py <raw_text_file>")
@@ -147,6 +173,12 @@ def main():
     raw_path = Path(sys.argv[1])
     if not raw_path.exists():
         sys.exit(f"File not found: {raw_path}")
+
+    # Pre-check: skip API call if a game for this team+date already exists
+    already_exists, existing_id = pre_check_duplicate(raw_path.name)
+    if already_exists:
+        print(f"SKIP (pre-check): {raw_path.name} → {existing_id}.md already exists.")
+        sys.exit(0)
 
     raw_text = raw_path.read_text()
     if len(raw_text.strip()) < 100:
