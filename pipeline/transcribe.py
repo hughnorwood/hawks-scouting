@@ -92,17 +92,27 @@ def extract_game_id(markdown_text):
 
     # 3. Extract team codes (3-5 uppercase letters)
 
-    # Try "Final Score: AWAY NN - HOME NN" — most reliable
-    m = re.search(r'Final\s+Score.*?([A-Z]{3,5})\s+\d+\s*[-–]\s*([A-Z]{3,5})\s+\d+', header)
+    # Try "Final Score: AWAY NN - HOME NN" or "AWAY NN, HOME NN"
+    m = re.search(r'Final\s+Score.*?([A-Z]{3,5})\s+\d+\s*[-–,]\s*([A-Z]{3,5})\s+\d+', header)
     if m:
         return f"{date_str}_{m.group(1)}_at_{m.group(2)}"
 
-    # Try line score table: first team code row is away, second is home
+    # Try line score table (pipe-delimited): first team code is away, second is home
     team_codes = re.findall(r'\|\s*([A-Z]{3,5})\s*\|', header)
     if len(team_codes) >= 2:
         return f"{date_str}_{team_codes[0]}_at_{team_codes[1]}"
 
-    # Try "AWAY at/vs HOME"
+    # Try line score in code-block format (no pipes): lines starting with team codes
+    code_block_teams = re.findall(r'^\s*([A-Z]{3,5})\s+\d', header, re.MULTILINE)
+    if len(code_block_teams) >= 2:
+        return f"{date_str}_{code_block_teams[0]}_at_{code_block_teams[1]}"
+
+    # Try "TEAM (CODE) @ TEAM (CODE)" pattern in header
+    m = re.search(r'\(([A-Z]{3,5})\)\s*(?:@|at|vs\.?)\s*.*?\(([A-Z]{3,5})\)', header)
+    if m:
+        return f"{date_str}_{m.group(1)}_at_{m.group(2)}"
+
+    # Try "AWAY at/vs HOME" bare codes
     m = re.search(r'([A-Z]{3,5})\s+(?:at|@|vs\.?)\s+([A-Z]{3,5})', header)
     if m:
         return f"{date_str}_{m.group(1)}_at_{m.group(2)}"
@@ -145,9 +155,11 @@ def pre_check_duplicate(raw_filename):
 
     Raw filenames follow the pattern: TEAM_YYYY-MM-DD_opponent_uuid.txt
     Existing game files follow: YYYY-MM-DD_AWAY_at_HOME.md
-    If any .md file in games/ contains both the date and team code, skip.
+
+    For doubleheaders (multiple games on the same date for the same team),
+    we count how many existing .md files match vs how many raw files exist
+    for the same team+date. Only skip if all games for that date are covered.
     """
-    # Extract team code and date from raw filename
     m = re.match(r"([A-Z]{3,5})_(\d{4}-\d{2}-\d{2})_", raw_filename)
     if not m:
         return False, None
@@ -158,10 +170,16 @@ def pre_check_duplicate(raw_filename):
     if not GAMES_DIR.exists():
         return False, None
 
-    for md_file in GAMES_DIR.glob("*.md"):
-        name = md_file.stem
-        if date_str in name and team_code in name:
-            return True, name
+    # Count existing .md files for this team+date
+    existing = [p.stem for p in GAMES_DIR.glob("*.md") if date_str in p.stem and team_code in p.stem]
+
+    # Count raw files for this team+date (to detect doubleheaders)
+    raw_dir = Path(__file__).resolve().parent / "raw"
+    raw_count = len(list(raw_dir.glob(f"{team_code}_{date_str}_*.txt")))
+
+    # Only skip if we already have as many .md files as raw files for this date
+    if existing and len(existing) >= raw_count:
+        return True, existing[0]
 
     return False, None
 
