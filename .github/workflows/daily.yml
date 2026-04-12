@@ -92,7 +92,7 @@ jobs:
             [ -z "$md_file" ] && continue
             [ -f "$md_file" ] || continue
             echo "::group::Ingesting $md_file"
-            python pipeline/ingest.py "$md_file"
+            python pipeline/ingest.py "$md_file" || echo "WARNING: ingestion failed for $md_file — continuing"
             echo "::endgroup::"
           done <<< "$NEW_GAMES"
 

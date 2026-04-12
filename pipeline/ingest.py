@@ -85,6 +85,12 @@ def determine_focal_team(game_md_text, config):
     focal_codes = {t["code"] for t in config["focal_teams"]}
     primary_code = next((t["code"] for t in config["focal_teams"] if t.get("primary")), "RVRH")
 
+    # Known aliases: transcription-derived codes → config codes
+    CODE_ALIASES = {
+        "MDDL": "MDLT", "CNTR": "CNTY", "LNGR": "LNRC", "HRFR": "HRFD",
+        "KNTS": "KTIS", "NRTH": "NHRF",
+    }
+
     header = game_md_text[:3000]
 
     # Extract the two team codes that actually played in this game
@@ -107,8 +113,11 @@ def determine_focal_team(game_md_text, config):
         if len(team_codes) >= 2:
             playing_teams = {team_codes[0], team_codes[1]}
 
+    # Resolve aliases to config codes
+    resolved_teams = {CODE_ALIASES.get(t, t) for t in playing_teams}
+
     # Intersect with focal teams
-    found_focal = list(playing_teams & focal_codes)
+    found_focal = list(resolved_teams & focal_codes)
 
     if not found_focal:
         # Fallback: broader search, but only for codes that are plausibly team codes
