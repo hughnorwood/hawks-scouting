@@ -71,7 +71,7 @@ jobs:
           NEW_GAME_FILES=""
           for raw_file in "${RAW_FILES[@]}"; do
             echo "::group::Transcribing $raw_file"
-            python pipeline/transcribe.py "$raw_file"
+            python pipeline/transcribe.py "$raw_file" || echo "WARNING: transcription failed for $raw_file — continuing"
             echo "::endgroup::"
           done
 

@@ -214,15 +214,16 @@ def main():
     # Parse Game_ID from the output
     game_id = extract_game_id(markdown)
     if not game_id:
-        # Write to a temp file so the user can inspect
-        fallback = GAMES_DIR / "UNKNOWN_GAME.md"
+        # Save with raw filename as fallback so pipeline can continue
+        raw_stem = Path(sys.argv[1]).stem
+        fallback = GAMES_DIR / f"UNKNOWN_{raw_stem}.md"
         GAMES_DIR.mkdir(parents=True, exist_ok=True)
         fallback.write_text(markdown)
         print(f"\nWARNING: Could not parse Game_ID from output.")
         print(f"Markdown saved to {fallback} for manual inspection.")
         print("First 500 chars of output:")
         print(markdown[:500])
-        sys.exit(1)
+        sys.exit(0)  # exit 0 so pipeline continues past this game
 
     # Check for duplicate
     out_file = GAMES_DIR / f"{game_id}.md"
