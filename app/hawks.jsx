@@ -603,9 +603,14 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
   // River Hill summary for annotation
   const rvrh = teamSummary(data, "RVRH");
 
-  // Fixed axis bounds
-  const X_MIN = 0.400, X_MAX = 1.100;
-  const Y_MIN = 2.500, Y_MAX = 13.0;
+  // Dynamic axis bounds from focal team data
+  const opsValues = plotTeams.map(t => t.ops);
+  const eraValues = plotTeams.map(t => t.era);
+  const opsMin = Math.min(...opsValues), opsMax = Math.max(...opsValues);
+  const eraMin = Math.min(...eraValues), eraMax = Math.max(...eraValues);
+  const OPS_PAD = 0.080, ERA_PAD = 1.50;
+  const X_MIN = opsMin - OPS_PAD, X_MAX = opsMax + OPS_PAD;
+  const Y_MIN = eraMin - ERA_PAD, Y_MAX = eraMax + ERA_PAD;
 
   // SVG layout
   const SVG_W = 600, SVG_H = 400;
