@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hawks Scouting</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // Fetch hawks.jsx, strip the ES module import/export, and run via Babel
+      fetch("/app/hawks.jsx")
+        .then(r => r.text())
+        .then(jsx => {
+          // Replace ES module import with destructuring from React global
+          let code = jsx.replace(
+            /^import\s*\{([^}]+)\}\s*from\s*["']react["'];?\s*/m,
+            "const {$1} = React;\n"
+          );
+          // Replace export default with window assignment
+          code = code.replace(/export\s+default\s+function\s+App/m, "function App");
+
+          // Transform JSX via Babel
+          const result = Babel.transform(code, {
+            presets: ["react"],
+            filename: "hawks.jsx",
+          });
+
+          // Execute the transformed code
+          const script = document.createElement("script");
+          script.textContent = result.code + "\nReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));";
+          document.body.appendChild(script);
+        })
+        .catch(err => {
+          document.getElementById("root").innerHTML = "<p style='padding:40px;color:red;'>Failed to load app: " + err.message + "</p>";
+        });
+    </script>
+  </body>
+</html>
