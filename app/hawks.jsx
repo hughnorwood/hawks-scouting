@@ -10,6 +10,14 @@ const fix1 = v => !isFinite(v) || isNaN(v) || v > 99 ? "—" : v.toFixed(1);
 const fmtIP = outs => `${Math.floor(outs / 3)}.${outs % 3}`;
 const clamp = (v, max) => v > max ? max : v;
 
+const TEAM_NAMES = {
+  RVRH: 'River Hill', CNTN: 'Centennial', GLNL: 'Glenelg', HNTN: 'Huntingtown',
+  PRKS: 'Parkside', STHR: 'Southern', FLLS: 'Fallston', MDLT: 'Middletown',
+  HRFD: 'Hereford', NHRF: 'North Harford', CNTY: 'Century', KTIS: 'Kent Island',
+  LNRC: 'Long Reach',
+};
+const teamName = id => TEAM_NAMES[id] || id;
+
 // ─── parsing ──────────────────────────────────────────────────────────────────
 function parseData(json) {
   return { gameLog: json.gameLog || [], batting: json.batting || [], pitching: json.pitching || [], fielding: json.fielding || [], roster: json.roster || [] };
@@ -746,7 +754,7 @@ function StandingsTable({ data, teams, onTeamClick }) {
 
   const renderRow = (t, cls) => (
     <tr key={t.id} className={cls} onClick={() => onTeamClick(t.id)}>
-      <td className="td-name">{t.id}</td>
+      <td className="td-name">{teamName(t.id)}</td>
       <td className="td-r" style={numStyle}>{t.W}</td>
       <td className="td-r" style={numStyle}>{t.L}</td>
       <td className="td-r" style={numStyle}>{t.RS}</td>
@@ -897,7 +905,7 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
         <tbody>
           {sortedHeatRows.map(t => (
             <tr key={t.id} className={t.id === "RVRH" ? "heatmap-rvrh" : ""} onClick={() => onTeamClick(t.id)}>
-              <td className="td-name">{t.id}</td>
+              <td className="td-name">{teamName(t.id)}</td>
               <td className="td-r" style={cellStyle(t.era, ranges.eraR.min, ranges.eraR.max, true)}>{fix2(t.era)}</td>
               <td className="td-r" style={cellStyle(t.ops, ranges.opsR.min, ranges.opsR.max, false)}>{avg3(t.ops)}</td>
               <td className="td-r" style={cellStyle(t.errG, ranges.errR.min, ranges.errR.max, true)}>{fix1(t.errG)}</td>
@@ -959,7 +967,7 @@ function TeamsCardGrid({ data, teams, onTeamClick }) {
             <div key={c.id} className="team-card"
               style={{ background: tier.bg, color: tier.textColor }}
               onClick={() => onTeamClick(c.id)}>
-              <div className="team-card-name">{c.id}</div>
+              <div className="team-card-name">{teamName(c.id)}</div>
               <div className="team-card-stats">
                 <span>{c.W}-{c.L}</span>
                 <span>{fix2(c.ERA)} ERA</span>
@@ -990,7 +998,7 @@ function TeamsCardGrid({ data, teams, onTeamClick }) {
                   <div key={c.id} className="team-card"
                     style={{ background: "#DDDAD2", color: "var(--text)" }}
                     onClick={() => onTeamClick(c.id)}>
-                    <div className="team-card-name">{c.id}</div>
+                    <div className="team-card-name">{teamName(c.id)}</div>
                     <div className="team-card-stats">
                       <span>{c.W}-{c.L}</span>
                       {c.ERA > 0 && <span>{fix2(c.ERA)} ERA</span>}
@@ -1048,7 +1056,7 @@ function TeamBriefing({ data, teamId, drawerState, setDrawerState, onPlayerClick
       <button className="back-btn" onClick={onBack}>{"← Back to Teams"}</button>
 
       <div className="briefing-header">
-        <div className="briefing-name">{teamId}</div>
+        <div className="briefing-name">{teamName(teamId)}</div>
         <div className="briefing-games">{gamesScouted} games scouted</div>
       </div>
 
@@ -1291,7 +1299,7 @@ function PlayerIntelligence({ data, playerName, teamId, onBack }) {
 
   return (
     <div>
-      <button className="back-btn" onClick={onBack}>{"← Back to "}{teamId}</button>
+      <button className="back-btn" onClick={onBack}>{"← Back to "}{teamName(teamId)}</button>
 
       <div className="pi-header">
         <div className="pi-name">{playerName}</div>
