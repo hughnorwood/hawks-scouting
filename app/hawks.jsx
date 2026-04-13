@@ -599,6 +599,8 @@ tbody tr:last-child td { border-bottom:none; }
   .teams-col-right { flex:1; min-height:400px; max-height:calc(100vh - 120px); overflow-y:auto; position:sticky; top:16px; }
 }
 .team-card.active { box-shadow:0 0 0 2px var(--navy); }
+.scatter-flex { display:flex; gap:16px; align-items:flex-start; }
+@media(max-width:900px) { .scatter-flex { flex-direction:column; } .scatter-flex > div:last-child { flex-direction:row; flex-wrap:wrap; padding-top:0; } }
 `;
 
 // ─── SORT HOOK ───────────────────────────────────────────────────────────────
@@ -675,7 +677,7 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
 
   return (
     <div className="scatter-wrap">
-      <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+      <div className="scatter-flex">
         {/* SVG chart */}
         <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ flex: 1, height: "auto", maxHeight: 420 }}>
           {/* Zone backgrounds */}
