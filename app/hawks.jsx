@@ -725,79 +725,98 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
 }
 
 function StandingsTable({ data, teams, onTeamClick }) {
+  const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC'];
+
   const allRecords = useMemo(() => {
-    return teams.all.map(id => {
+    return FOCAL_TEAMS.map(id => {
       const rec = teamRecord(data, id);
       return { id, ...rec };
     });
-  }, [data, teams]);
+  }, [data]);
 
   const rvrh = allRecords.find(r => r.id === "RVRH");
   const field = allRecords.filter(r => r.id !== "RVRH");
 
   const { sorted: sortedField, col, dir, toggle } = useSort(field, "W");
 
+  const numStyle = { color: "var(--text)", fontFamily: "monospace", fontWeight: 600 };
+  const diffStyle = d => ({ color: d > 0 ? "#1A7040" : d < 0 ? "#B83030" : "var(--text)", fontFamily: "monospace", fontWeight: 600 });
+  const streakStyle = s => ({ color: s[0] === "W" ? "#1A7040" : "#B83030", fontFamily: "monospace", fontWeight: 700 });
+  const thStyle = { color: "var(--navy)", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.7px" };
+
+  const renderRow = (t, cls) => (
+    <tr key={t.id} className={cls} onClick={() => onTeamClick(t.id)}>
+      <td className="td-name">{t.id}</td>
+      <td className="td-r" style={numStyle}>{t.W}</td>
+      <td className="td-r" style={numStyle}>{t.L}</td>
+      <td className="td-r" style={numStyle}>{t.RS}</td>
+      <td className="td-r" style={numStyle}>{t.RA}</td>
+      <td className="td-r" style={diffStyle(t.diff)}>{t.diff > 0 ? "+" : ""}{t.diff}</td>
+      <td className="td-r" style={streakStyle(t.streak)}>{t.streak}</td>
+      <td>
+        <div className="last5-dots" style={{ justifyContent: "center" }}>
+          {t.last5.slice().reverse().map((g, i) => (
+            <div key={i} className={`last5-dot ${g.W ? "last5-w" : "last5-l"}`} />
+          ))}
+        </div>
+      </td>
+    </tr>
+  );
+
   return (
     <div className="standings-wrap">
       <table>
         <thead>
           <tr>
-            <th style={{ textAlign: "left" }}>Team</th>
+            <th style={{ ...thStyle, textAlign: "left" }}>Team</th>
             <Th c="W" label="W" s={col} d={dir} fn={toggle} />
             <Th c="L" label="L" s={col} d={dir} fn={toggle} />
             <Th c="RS" label="RS" s={col} d={dir} fn={toggle} />
             <Th c="RA" label="RA" s={col} d={dir} fn={toggle} />
             <Th c="diff" label={"+/−"} s={col} d={dir} fn={toggle} />
-            <th style={{ textAlign: "right", cursor: "default" }}>Streak</th>
-            <th style={{ textAlign: "center", cursor: "default" }}>Last 5</th>
+            <th style={{ ...thStyle, textAlign: "right", cursor: "default" }}>Streak</th>
+            <th style={{ ...thStyle, textAlign: "center", cursor: "default" }}>Last 5</th>
           </tr>
         </thead>
         <tbody>
-          {rvrh && (
-            <tr className="standings-rvrh standings-sep" onClick={() => onTeamClick("RVRH")}>
-              <td className="td-name">{rvrh.id}</td>
-              <td className="td-r">{rvrh.W}</td>
-              <td className="td-r">{rvrh.L}</td>
-              <td className="td-r">{rvrh.RS}</td>
-              <td className="td-r">{rvrh.RA}</td>
-              <td className={`td-r ${rvrh.diff > 0 ? "c-g" : rvrh.diff < 0 ? "c-r" : "c-m"}`}>{rvrh.diff > 0 ? "+" : ""}{rvrh.diff}</td>
-              <td className={`td-r ${rvrh.streak.startsWith("W") ? "c-g" : "c-r"}`}>{rvrh.streak}</td>
-              <td>
-                <div className="last5-dots" style={{ justifyContent: "center" }}>
-                  {rvrh.last5.slice().reverse().map((g, i) => (
-                    <div key={i} className={`last5-dot ${g.W ? "last5-w" : "last5-l"}`} />
-                  ))}
-                </div>
-              </td>
-            </tr>
-          )}
-          {sortedField.map(t => (
-            <tr key={t.id} onClick={() => onTeamClick(t.id)}>
-              <td className="td-name">{t.id}</td>
-              <td className="td-r">{t.W}</td>
-              <td className="td-r">{t.L}</td>
-              <td className="td-r">{t.RS}</td>
-              <td className="td-r">{t.RA}</td>
-              <td className={`td-r ${t.diff > 0 ? "c-g" : t.diff < 0 ? "c-r" : "c-m"}`}>{t.diff > 0 ? "+" : ""}{t.diff}</td>
-              <td className={`td-r ${t.streak.startsWith("W") ? "c-g" : "c-r"}`}>{t.streak}</td>
-              <td>
-                <div className="last5-dots" style={{ justifyContent: "center" }}>
-                  {t.last5.slice().reverse().map((g, i) => (
-                    <div key={i} className={`last5-dot ${g.W ? "last5-w" : "last5-l"}`} />
-                  ))}
-                </div>
-              </td>
-            </tr>
-          ))}
+          {rvrh && renderRow(rvrh, "standings-rvrh standings-sep")}
+          {sortedField.map(t => renderRow(t, ""))}
         </tbody>
       </table>
     </div>
   );
 }
 
+function heatCell(value, min, max, lowerIsBetter) {
+  if (!isFinite(value) || max === min) {
+    return { bg: "#F3F6FB", color: "#0D2240" };
+  }
+  const t = (value - min) / (max - min);
+  const q = lowerIsBetter ? 1 - t : t; // 1.0 = best, 0.0 = worst
+
+  let r, g, b;
+  if (q >= 0.5) {
+    const s = (q - 0.5) * 2;
+    r = Math.round(220 - s * 161);  // 220 → 59
+    g = Math.round(220 - s * 111);  // 220 → 109
+    b = Math.round(220 - s * 203);  // 220 → 17
+  } else {
+    const s = q * 2;
+    r = Math.round(184 - s * (184 - 220));  // 184 → 220
+    g = Math.round(48  + s * 172);           // 48  → 220
+    b = Math.round(48  + s * 172);           // 48  → 220
+  }
+
+  const bg = `rgba(${r}, ${g}, ${b}, 0.55)`;
+  const color = (q > 0.75 || q < 0.25) ? "#ffffff" : "#0D2240";
+  return { bg, color };
+}
+
 function LeagueHeatMap({ data, teams, onTeamClick }) {
+  const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC'];
+
   const heatData = useMemo(() => {
-    const rows = teams.all.map(id => {
+    const rows = FOCAL_TEAMS.map(id => {
       const s = teamSummary(data, id);
       const batters = aggBatting(data.batting.filter(r => r.Team === id));
       const totalSB = batters.reduce((sum, b) => sum + b.SB, 0);
@@ -805,7 +824,7 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
       const sbPct = totalSB + totalCS > 0 ? totalSB / (totalSB + totalCS) : 0;
       const errG = s.errors / (s.G || 1);
       return { id, era: s.ERA, ops: s.teamOBP + s.teamSLG, errG, sbPct };
-    }).filter(r => r.era > 0 || r.ops > 0);
+    });
 
     rows.sort((a, b) => a.id.localeCompare(b.id));
 
@@ -815,7 +834,12 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
     };
 
     return { rows, eraR: range("era"), opsR: range("ops"), errR: range("errG"), sbR: range("sbPct") };
-  }, [data, teams]);
+  }, [data]);
+
+  const cellStyle = (value, min, max, lowerIsBetter) => {
+    const c = heatCell(value, min, max, lowerIsBetter);
+    return { background: c.bg, color: c.color, fontFamily: "monospace", fontWeight: 600, fontSize: 13 };
+  };
 
   return (
     <div className="heatmap-wrap">
@@ -833,10 +857,10 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
           {heatData.rows.map(t => (
             <tr key={t.id} className={t.id === "RVRH" ? "heatmap-rvrh" : ""} onClick={() => onTeamClick(t.id)}>
               <td className="td-name">{t.id}</td>
-              <td className="td-r" style={{ background: heatColor(t.era, heatData.eraR.min, heatData.eraR.max, true) }}>{fix2(t.era)}</td>
-              <td className="td-r" style={{ background: heatColor(t.ops, heatData.opsR.min, heatData.opsR.max, false) }}>{avg3(t.ops)}</td>
-              <td className="td-r" style={{ background: heatColor(t.errG, heatData.errR.min, heatData.errR.max, true) }}>{fix1(t.errG)}</td>
-              <td className="td-r" style={{ background: heatColor(t.sbPct, heatData.sbR.min, heatData.sbR.max, false) }}>{t.sbPct > 0 ? pct(t.sbPct) : "—"}</td>
+              <td className="td-r" style={cellStyle(t.era, heatData.eraR.min, heatData.eraR.max, true)}>{fix2(t.era)}</td>
+              <td className="td-r" style={cellStyle(t.ops, heatData.opsR.min, heatData.opsR.max, false)}>{avg3(t.ops)}</td>
+              <td className="td-r" style={cellStyle(t.errG, heatData.errR.min, heatData.errR.max, true)}>{fix1(t.errG)}</td>
+              <td className="td-r" style={cellStyle(t.sbPct, heatData.sbR.min, heatData.sbR.max, false)}>{t.sbPct > 0 ? pct(t.sbPct) : "—"}</td>
             </tr>
           ))}
         </tbody>
