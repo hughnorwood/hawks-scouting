@@ -400,6 +400,9 @@ tbody tr:last-child td { border-bottom:none; }
 .c-g { color:var(--green); } .c-r { color:var(--red); } .c-m { color:var(--muted); }
 .td-r { text-align:right; }
 
+/* section headers */
+.sec-title { font-family:'Nunito Sans'; font-size:10px; font-weight:800; color:var(--navy); text-transform:uppercase; letter-spacing:1.2px; padding-bottom:10px; border-bottom:2px solid var(--navy); margin-bottom:14px; }
+
 /* back button */
 .back-btn { background:var(--s1); border:0.5px solid var(--bd); border-radius:6px; color:var(--text2); font-family:'Nunito Sans'; font-size:13px; font-weight:600; padding:7px 14px; cursor:pointer; margin-bottom:14px; display:inline-flex; align-items:center; gap:6px; transition:all .15s; box-shadow:0 1px 3px rgba(0,30,80,.06); min-height:44px; }
 .back-btn:hover { border-color:var(--navy); color:var(--navy); }
@@ -930,36 +933,73 @@ function LeagueTab({ data, teams, onTeamClick }) {
 
 // ─── TEAMS TAB ──────────────────────────────────────────────────────────────
 
+function classifyTeamsForTab(data) {
+  const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC'];
+  const allCodes = [...new Set([
+    ...data.batting.map(r => r.Team),
+    ...data.pitching.map(r => r.Team),
+  ].filter(Boolean))];
+
+  const gameCounts = {};
+  data.gameLog.forEach(g => {
+    [g.Away_Team, g.Home_Team].forEach(t => {
+      if (t) gameCounts[t] = (gameCounts[t] || 0) + 1;
+    });
+  });
+
+  const focal   = FOCAL_TEAMS.filter(id => allCodes.includes(id));
+  const scouted = allCodes
+    .filter(id => !FOCAL_TEAMS.includes(id) && (gameCounts[id] || 0) >= 4)
+    .sort((a, b) => (gameCounts[b] || 0) - (gameCounts[a] || 0) || a.localeCompare(b));
+  const limited = allCodes
+    .filter(id => !FOCAL_TEAMS.includes(id) && (gameCounts[id] || 0) < 4)
+    .sort((a, b) => a.localeCompare(b));
+
+  return { focal, scouted, limited, gameCounts };
+}
+
 function TeamsCardGrid({ data, teams, onTeamClick }) {
-  const { focalCards, limitedCards } = useMemo(() => {
-    const focal = [];
-    const limited = [];
-    teams.all.forEach(id => {
+  const { focal, scouted, limited, gameCounts } = useMemo(() => classifyTeamsForTab(data), [data]);
+
+  // Tier 1 — Focal team cards
+  const focalCards = useMemo(() => {
+    return focal.map(id => {
       const pt = playoffThreat(data, id);
-      const games = data.gameLog.filter(g => g.Away_Team === id || g.Home_Team === id);
-      const G = games.length;
       const rec = teamRecord(data, id);
       const s = teamSummary(data, id);
-
-      const card = {
-        id, score: pt ? pt.score : 0, G,
-        W: rec.W, L: rec.L,
-        ERA: s.ERA, AVG: s.teamAVG,
+      return {
+        id, score: pt ? pt.score : 0,
+        W: rec.W, L: rec.L, ERA: s.ERA, AVG: s.teamAVG,
         last3: rec.results.slice(0, 3),
       };
+    }).sort((a, b) => b.score - a.score);
+  }, [data, focal]);
 
-      if (G >= 4) focal.push(card);
-      else limited.push(card);
+  // Tier 2 — Scouted opponents table data
+  const scoutedRows = useMemo(() => {
+    return scouted.map(id => {
+      const rec = teamRecord(data, id);
+      const s = teamSummary(data, id);
+      const pitchers = aggPitching(data.pitching.filter(r => r.Team === id));
+      const tOuts = pitchers.reduce((sum, p) => sum + p.Outs, 0);
+      const tR = pitchers.reduce((sum, p) => sum + p.R, 0);
+      const IP = tOuts / 3;
+      const ERA = safe(tR * 9, IP);
+      return {
+        id, G: gameCounts[id] || 0, W: rec.W, L: rec.L,
+        ERA, AVG: s.teamAVG, last3: rec.results.slice(0, 3),
+      };
     });
-    focal.sort((a, b) => b.score - a.score);
-    limited.sort((a, b) => b.score - a.score);
-    return { focalCards: focal, limitedCards: limited };
-  }, [data, teams]);
+  }, [data, scouted, gameCounts]);
+
+  const { sorted: sortedScouted, col: sCol, dir: sDir, toggle: sToggle } = useSort(scoutedRows, "G");
 
   const [showLimited, setShowLimited] = useState(false);
 
   return (
     <div>
+      {/* Tier 1 — Focal Teams */}
+      <div className="sec-title">Focal Teams</div>
       <div className="team-grid">
         {focalCards.map(c => {
           const tier = threatTierUI(c.score);
@@ -985,24 +1025,77 @@ function TeamsCardGrid({ data, teams, onTeamClick }) {
         })}
       </div>
 
-      {limitedCards.length > 0 && (
+      {/* Tier 2 — Scouted Opponents */}
+      {scoutedRows.length > 0 && (
+        <>
+          <div className="sec-title" style={{ marginTop: 22 }}>
+            Scouted Opponents
+            <span style={{ fontSize: 11, fontWeight: 400, color: "var(--muted)", marginLeft: 8 }}>
+              {"4+ games \u00b7 tap any row to open briefing"}
+            </span>
+          </div>
+          <div className="tbl-wrap" style={{ marginBottom: 18 }}>
+            <table>
+              <thead>
+                <tr>
+                  <Th c="id" label="Team" s={sCol} d={sDir} fn={sToggle} left />
+                  <Th c="G" label="G" s={sCol} d={sDir} fn={sToggle} />
+                  <Th c="W" label="W" s={sCol} d={sDir} fn={sToggle} />
+                  <Th c="L" label="L" s={sCol} d={sDir} fn={sToggle} />
+                  <Th c="ERA" label="ERA" s={sCol} d={sDir} fn={sToggle} />
+                  <Th c="AVG" label="AVG" s={sCol} d={sDir} fn={sToggle} />
+                  <th style={{ textAlign: "center", cursor: "default" }}>Last 3</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedScouted.map(t => (
+                  <tr key={t.id} onClick={() => onTeamClick(t.id)} style={{ cursor: "pointer" }}>
+                    <td className="td-name" style={{ fontWeight: 600 }}>{teamName(t.id)}</td>
+                    <td className="td-r">{t.G}</td>
+                    <td className="td-r">{t.W}</td>
+                    <td className="td-r">{t.L}</td>
+                    <td className="td-r" style={{ color: t.ERA <= 4 ? "#1A7040" : t.ERA >= 8 ? "#B83030" : "var(--text)" }}>{fix2(t.ERA)}</td>
+                    <td className="td-r">{avg3(t.AVG)}</td>
+                    <td>
+                      <div className="last5-dots" style={{ justifyContent: "center" }}>
+                        {t.last3.map((g, i) => (
+                          <div key={i} className={`last5-dot ${g.W ? "last5-w" : "last5-l"}`} />
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* Tier 3 — Limited Data */}
+      {limited.length > 0 && (
         <div className="limited-acc">
           <div className="limited-acc-hdr" onClick={() => setShowLimited(v => !v)}>
-            <span className="limited-acc-title">{"Additional opponents \u00b7 limited data"} ({limitedCards.length})</span>
+            <span className="limited-acc-title">{"Other opponents \u00b7 fewer than 4 games scouted"} ({limited.length})</span>
             <span className="limited-acc-toggle">{showLimited ? "▲" : "▼"}</span>
           </div>
           {showLimited && (
             <div className="limited-acc-body">
-              <div className="team-grid">
-                {limitedCards.map(c => (
-                  <div key={c.id} className="team-card"
-                    style={{ background: "#DDDAD2", color: "var(--text)" }}
-                    onClick={() => onTeamClick(c.id)}>
-                    <div className="team-card-name">{teamName(c.id)}</div>
-                    <div className="team-card-stats">
-                      <span>{c.W}-{c.L}</span>
-                      {c.ERA > 0 && <span>{fix2(c.ERA)} ERA</span>}
-                    </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {limited.map(id => (
+                  <div key={id} onClick={() => onTeamClick(id)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      padding: "6px 12px", background: "var(--s2)", border: "1px solid var(--bd)",
+                      borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--text)",
+                      transition: "all .12s",
+                    }}>
+                    {teamName(id)}
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, color: "var(--muted)", background: "var(--s3)",
+                      borderRadius: 3, padding: "1px 5px",
+                    }}>
+                      {gameCounts[id] || 0}G
+                    </span>
                   </div>
                 ))}
               </div>
