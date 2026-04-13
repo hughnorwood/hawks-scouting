@@ -612,60 +612,77 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
 
   if (teamData.length === 0) return null;
 
-  // Fixed ERA range: 0 (top) to 10 (bottom)
-  const eraMin = 0, eraMax = 10;
-  // OPS range from data with padding
-  const pad = 0.03;
-  const opsVals = teamData.map(t => t.ops);
-  const opsMin = Math.min(...opsVals) - pad, opsMax = Math.max(...opsVals) + pad;
+  // River Hill summary for annotation
+  const rvrh = teamSummary(data, "RVRH");
 
-  const W = 600, H = 400, mx = 55, my = 40, mr = 20, mb = 45;
-  const pw = W - mx - mr, ph = H - my - mb;
+  // OPS (X axis) — proportional padding with enforced minimum span
+  const opsValues = teamData.map(t => t.ops).filter(v => isFinite(v));
+  const opsDataMin = Math.min(...opsValues), opsDataMax = Math.max(...opsValues);
+  const opsPad = Math.max(0.120, (opsDataMax - opsDataMin) * 0.40);
+  const xMid = (opsDataMin + opsDataMax) / 2;
+  const xSpan = Math.max((opsDataMax + opsPad) - (opsDataMin - opsPad), 0.600);
+  const xLo = xMid - xSpan / 2, xHi = xMid + xSpan / 2;
 
-  const scaleX = v => mx + ((v - opsMin) / (opsMax - opsMin)) * pw;
-  // Inverted: ERA 0 at top (my), ERA 10 at bottom (my + ph)
-  const scaleY = v => my + (v / eraMax) * ph;
+  // ERA (Y axis, inverted — low ERA plots at top)
+  const eraValues = teamData.map(t => t.era).filter(v => isFinite(v) && v < 30);
+  const eraDataMin = Math.min(...eraValues), eraDataMax = Math.max(...eraValues);
+  const eraPad = Math.max(1.50, (eraDataMax - eraDataMin) * 0.40);
+  const yMid = (eraDataMin + eraDataMax) / 2;
+  const ySpan = Math.max((eraDataMax + eraPad) - (eraDataMin - eraPad), 8.00);
+  const yTop = yMid - ySpan / 2;     // best ERA — maps to SVG top
+  const yBottom = yMid + ySpan / 2;   // worst ERA — maps to SVG bottom
 
-  const midX = (opsMin + opsMax) / 2;
-  const midY = eraMax / 2;
+  // SVG layout with 16px inset padding so dots at extremes aren't clipped
+  const svgW = 600, svgH = 400, mx = 55, my = 40, mr = 20, mb = 45;
+  const inset = 16;
+  const pw = svgW - mx - mr - inset * 2;
+  const ph = svgH - my - mb - inset * 2;
 
-  const xStep = (opsMax - opsMin) / 5;
-  const xTicks = Array.from({ length: 6 }, (_, i) => opsMin + i * xStep);
-  // Y ticks at 0, 2, 4, 6, 8, 10
-  const yTicks = [0, 2, 4, 6, 8, 10];
+  const scaleX = v => mx + inset + ((v - xLo) / (xHi - xLo)) * pw;
+  const scaleY = v => my + inset + ((v - yTop) / (yBottom - yTop)) * ph;
+
+  const midXVal = (xLo + xHi) / 2;
+  const midYVal = (yTop + yBottom) / 2;
+
+  // X ticks — 5 evenly spaced
+  const xStep = (xHi - xLo) / 5;
+  const xTicks = Array.from({ length: 6 }, (_, i) => xLo + i * xStep);
+  // Y ticks — 5 evenly spaced
+  const yStep = (yBottom - yTop) / 5;
+  const yTicks = Array.from({ length: 6 }, (_, i) => yTop + i * yStep);
 
   return (
     <div className="scatter-wrap">
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", maxHeight: 420 }}>
+      <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: "100%", height: "auto", maxHeight: 420 }}>
         {/* Zone backgrounds */}
-        <rect x={scaleX(midX)} y={my} width={scaleX(opsMax) - scaleX(midX)} height={scaleY(midY) - my}
+        <rect x={scaleX(midXVal)} y={my} width={scaleX(xHi) + inset - scaleX(midXVal)} height={scaleY(midYVal) - my}
           fill="rgba(59,109,17,0.06)" rx="4" />
-        <rect x={mx} y={my} width={scaleX(midX) - mx} height={scaleY(midY) - my}
+        <rect x={mx} y={my} width={scaleX(midXVal) - mx} height={scaleY(midYVal) - my}
           fill="rgba(26,95,168,0.04)" rx="4" />
-        <rect x={scaleX(midX)} y={scaleY(midY)} width={scaleX(opsMax) - scaleX(midX)} height={scaleY(eraMax) - scaleY(midY)}
+        <rect x={scaleX(midXVal)} y={scaleY(midYVal)} width={scaleX(xHi) + inset - scaleX(midXVal)} height={svgH - mb - scaleY(midYVal)}
           fill="rgba(139,80,16,0.04)" rx="4" />
 
         {/* Axes */}
-        <line x1={mx} y1={H - mb} x2={W - mr} y2={H - mb} stroke="var(--bd)" strokeWidth="1" />
-        <line x1={mx} y1={my} x2={mx} y2={H - mb} stroke="var(--bd)" strokeWidth="1" />
+        <line x1={mx} y1={svgH - mb} x2={svgW - mr} y2={svgH - mb} stroke="var(--bd)" strokeWidth="1" />
+        <line x1={mx} y1={my} x2={mx} y2={svgH - mb} stroke="var(--bd)" strokeWidth="1" />
 
         {/* X-axis ticks */}
         {xTicks.map((v, i) => (
           <g key={`xt${i}`}>
-            <line x1={scaleX(v)} y1={H - mb} x2={scaleX(v)} y2={H - mb + 4} stroke="var(--bd2)" strokeWidth="1" />
-            <text x={scaleX(v)} y={H - mb + 18} textAnchor="middle" fontSize="10" fill="var(--muted)" fontFamily="'Courier New',monospace">{v.toFixed(3)}</text>
+            <line x1={scaleX(v)} y1={svgH - mb} x2={scaleX(v)} y2={svgH - mb + 4} stroke="var(--bd2)" strokeWidth="1" />
+            <text x={scaleX(v)} y={svgH - mb + 18} textAnchor="middle" fontSize="10" fill="var(--muted)" fontFamily="'Courier New',monospace">{v.toFixed(3)}</text>
           </g>
         ))}
-        <text x={mx + pw / 2} y={H - 4} textAnchor="middle" fontSize="11" fill="var(--text2)" fontWeight="700" fontFamily="'Nunito Sans'">OPS</text>
+        <text x={mx + (svgW - mx - mr) / 2} y={svgH - 4} textAnchor="middle" fontSize="11" fill="var(--text2)" fontWeight="700" fontFamily="'Nunito Sans'">OPS</text>
 
-        {/* Y-axis ticks */}
+        {/* Y-axis ticks (ERA, inverted — low at top) */}
         {yTicks.map((v, i) => (
           <g key={`yt${i}`}>
             <line x1={mx - 4} y1={scaleY(v)} x2={mx} y2={scaleY(v)} stroke="var(--bd2)" strokeWidth="1" />
             <text x={mx - 8} y={scaleY(v) + 3} textAnchor="end" fontSize="10" fill="var(--muted)" fontFamily="'Courier New',monospace">{v.toFixed(1)}</text>
           </g>
         ))}
-        <text x={14} y={my + ph / 2} textAnchor="middle" fontSize="11" fill="var(--text2)" fontWeight="700" fontFamily="'Nunito Sans'" transform={`rotate(-90, 14, ${my + ph / 2})`}>ERA</text>
+        <text x={14} y={my + (svgH - my - mb) / 2} textAnchor="middle" fontSize="11" fill="var(--text2)" fontWeight="700" fontFamily="'Nunito Sans'" transform={`rotate(-90, 14, ${my + (svgH - my - mb) / 2})`}>ERA</text>
 
         {/* Dots */}
         {teamData.map(t => {
@@ -684,8 +701,7 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
               {isRVRH && (
                 <>
                   <line x1={cx + 12} y1={cy} x2={cx + 22} y2={cy - 14} stroke="var(--bd2)" strokeWidth="1" />
-                  <text x={cx + 24} y={cy - 18} fontSize="11" fill="var(--navy)" fontWeight="800" fontFamily="'Nunito Sans'">River Hill</text>
-                  <text x={cx + 24} y={cy - 6} fontSize="10" fill="var(--muted)" fontWeight="600" fontFamily="'Courier New',monospace">{t.W}-{t.L}</text>
+                  <text x={cx + 24} y={cy - 18} fontSize="11" fill="var(--navy)" fontWeight="800" fontFamily="'Nunito Sans'">{`River Hill \u00b7 ${rvrh.W}\u2013${rvrh.L}`}</text>
                 </>
               )}
             </g>
