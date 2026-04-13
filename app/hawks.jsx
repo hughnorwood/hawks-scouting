@@ -18,6 +18,18 @@ const TEAM_NAMES = {
 };
 const teamName = id => TEAM_NAMES[id] || id;
 
+const DESKTOP_BP = 1280;
+
+function useWindowWidth() {
+  const [width, setWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1024);
+  useEffect(() => {
+    const handle = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", handle);
+    return () => window.removeEventListener("resize", handle);
+  }, []);
+  return width;
+}
+
 // ─── parsing ──────────────────────────────────────────────────────────────────
 function parseData(json) {
   return { gameLog: json.gameLog || [], batting: json.batting || [], pitching: json.pitching || [], fielding: json.fielding || [], roster: json.roster || [] };
@@ -379,7 +391,7 @@ body { background:var(--bg); color:var(--text); font-family:'Nunito Sans',sans-s
 .tab { font-family:'Nunito Sans'; font-weight:600; font-size:14px; padding:12px 18px; cursor:pointer; color:var(--muted); border-bottom:3px solid transparent; transition:all .15s; white-space:nowrap; letter-spacing:.3px; min-height:44px; display:flex; align-items:center; }
 .tab:hover { color:var(--navy); }
 .tab.on { color:var(--navy); border-bottom-color:var(--gold); font-weight:700; }
-.main { padding:20px; max-width:1280px; margin:0 auto; }
+.main { padding:20px; max-width:1440px; margin:0 auto; }
 
 /* loading */
 .loading-wrap { display:flex; align-items:center; justify-content:center; height:60vh; }
@@ -572,6 +584,21 @@ tbody tr:last-child td { border-bottom:none; }
   .tabs { padding:0 12px; }
   .slim-header { margin:0 -12px; padding-left:12px; padding-right:12px; }
 }
+
+/* Desktop layouts */
+.league-layout { display:flex; flex-direction:column; gap:16px; }
+.teams-layout  { display:flex; flex-direction:column; gap:16px; }
+
+@media(min-width:1280px) {
+  .main { max-width:1440px; }
+  .league-layout { flex-direction:row; align-items:flex-start; gap:24px; }
+  .league-col-left { flex:0 0 55%; position:sticky; top:16px; }
+  .league-col-right { flex:1; display:flex; flex-direction:column; gap:16px; max-height:calc(100vh - 120px); overflow-y:auto; }
+  .teams-layout { flex-direction:row; align-items:flex-start; gap:24px; }
+  .teams-col-left { flex:0 0 52%; }
+  .teams-col-right { flex:1; min-height:400px; max-height:calc(100vh - 120px); overflow-y:auto; position:sticky; top:16px; }
+}
+.team-card.active { box-shadow:0 0 0 2px var(--navy); }
 `;
 
 // ─── SORT HOOK ───────────────────────────────────────────────────────────────
@@ -609,12 +636,13 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
     }).filter(t => isFinite(t.ops) && isFinite(t.era) && t.era < 30);
   }, [data]);
 
+  const [hoveredTeam, setHoveredTeam] = useState(null);
+
   if (plotTeams.length === 0) return null;
 
-  // River Hill summary for annotation
-  const rvrh = teamSummary(data, "RVRH");
+  const tierColor = t => threatTierUI(t.score).bg;
 
-  // Dynamic axis bounds from focal team data
+  // Dynamic axis bounds
   const opsValues = plotTeams.map(t => t.ops);
   const eraValues = plotTeams.map(t => t.era);
   const opsMin = Math.min(...opsValues), opsMax = Math.max(...opsValues);
@@ -623,12 +651,8 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
   const X_MIN = opsMin - OPS_PAD, X_MAX = opsMax + OPS_PAD;
   const Y_MIN = eraMin - ERA_PAD, Y_MAX = eraMax + ERA_PAD;
 
-  // SVG layout
   const SVG_W = 600, SVG_H = 400;
-  const ML = 55, MT = 40, MR = 20, MB = 45;
-  const INSET = 20;
-
-  // Inner plot rectangle (inset from margins so dots aren't clipped)
+  const ML = 55, MT = 40, MR = 20, MB = 45, INSET = 20;
   const PL = ML + INSET, PR = SVG_W - MR - INSET;
   const PT = MT + INSET, PB = SVG_H - MB - INSET;
   const PW = PR - PL, PH = PB - PT;
@@ -636,100 +660,116 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
   const toX = ops => PL + ((ops - X_MIN) / (X_MAX - X_MIN)) * PW;
   const toY = era => PT + ((era - Y_MIN) / (Y_MAX - Y_MIN)) * PH;
 
-  const midXVal = (X_MIN + X_MAX) / 2;
-  const midYVal = (Y_MIN + Y_MAX) / 2;
-
-  // Ticks — 5 intervals
+  const midXVal = (X_MIN + X_MAX) / 2, midYVal = (Y_MIN + Y_MAX) / 2;
   const xStep = (X_MAX - X_MIN) / 5;
   const xTicks = Array.from({ length: 6 }, (_, i) => X_MIN + i * xStep);
   const yStep = (Y_MAX - Y_MIN) / 5;
   const yTicks = Array.from({ length: 6 }, (_, i) => Y_MIN + i * yStep);
 
+  // Legend sort: THREAT → MID → WEAK, alpha within tier
+  const tierOrder = { "MAJOR THREAT": 0, CONTENDER: 1, "MID-TIER": 1, "LOW THREAT": 2 };
+  const legendTeams = [...plotTeams].sort((a, b) => {
+    const ta = tierOrder[a.tier] ?? 1, tb = tierOrder[b.tier] ?? 1;
+    return ta !== tb ? ta - tb : a.id.localeCompare(b.id);
+  });
+
   return (
     <div className="scatter-wrap">
-      <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: "100%", height: "auto", maxHeight: 420 }}>
-        {/* Zone backgrounds */}
-        <rect x={toX(midXVal)} y={MT} width={SVG_W - MR - toX(midXVal)} height={toY(midYVal) - MT}
-          fill="rgba(59,109,17,0.06)" rx="4" />
-        <rect x={ML} y={MT} width={toX(midXVal) - ML} height={toY(midYVal) - MT}
-          fill="rgba(26,95,168,0.04)" rx="4" />
-        <rect x={toX(midXVal)} y={toY(midYVal)} width={SVG_W - MR - toX(midXVal)} height={SVG_H - MB - toY(midYVal)}
-          fill="rgba(139,80,16,0.04)" rx="4" />
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+        {/* SVG chart */}
+        <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ flex: 1, height: "auto", maxHeight: 420 }}>
+          {/* Zone backgrounds */}
+          <rect x={toX(midXVal)} y={MT} width={SVG_W - MR - toX(midXVal)} height={toY(midYVal) - MT} fill="rgba(59,109,17,0.06)" rx="4" />
+          <rect x={ML} y={MT} width={toX(midXVal) - ML} height={toY(midYVal) - MT} fill="rgba(26,95,168,0.04)" rx="4" />
+          <rect x={toX(midXVal)} y={toY(midYVal)} width={SVG_W - MR - toX(midXVal)} height={SVG_H - MB - toY(midYVal)} fill="rgba(139,80,16,0.04)" rx="4" />
 
-        {/* Axes */}
-        <line x1={ML} y1={SVG_H - MB} x2={SVG_W - MR} y2={SVG_H - MB} stroke="#C8D5E8" strokeWidth="1" />
-        <line x1={ML} y1={MT} x2={ML} y2={SVG_H - MB} stroke="#C8D5E8" strokeWidth="1" />
+          {/* Axes */}
+          <line x1={ML} y1={SVG_H - MB} x2={SVG_W - MR} y2={SVG_H - MB} stroke="#C8D5E8" strokeWidth="1" />
+          <line x1={ML} y1={MT} x2={ML} y2={SVG_H - MB} stroke="#C8D5E8" strokeWidth="1" />
 
-        {/* X-axis ticks */}
-        {xTicks.map((v, i) => (
-          <g key={`xt${i}`}>
-            <line x1={toX(v)} y1={SVG_H - MB} x2={toX(v)} y2={SVG_H - MB + 4} stroke="#A8BDD8" strokeWidth="1" />
-            <text x={toX(v)} y={SVG_H - MB + 18} textAnchor="middle" fontSize={11} fontWeight={600} fill="#3A5070" fontFamily="Nunito Sans, sans-serif">{v.toFixed(3)}</text>
-          </g>
-        ))}
-        <text x={ML + (SVG_W - ML - MR) / 2} y={SVG_H - 4} textAnchor="middle" fontSize={13} fontWeight={700} fill="#0D2240" fontFamily="Nunito Sans, sans-serif">OPS</text>
+          {/* X ticks */}
+          {xTicks.map((v, i) => (
+            <g key={`xt${i}`}>
+              <line x1={toX(v)} y1={SVG_H - MB} x2={toX(v)} y2={SVG_H - MB + 4} stroke="#A8BDD8" strokeWidth="1" />
+              <text x={toX(v)} y={SVG_H - MB + 18} textAnchor="middle" fontSize={11} fontWeight={600} fill="#3A5070" fontFamily="Nunito Sans, sans-serif">{v.toFixed(3)}</text>
+            </g>
+          ))}
+          <text x={ML + (SVG_W - ML - MR) / 2} y={SVG_H - 4} textAnchor="middle" fontSize={13} fontWeight={700} fill="#0D2240" fontFamily="Nunito Sans, sans-serif">OPS</text>
 
-        {/* Y-axis ticks (ERA — low at top) */}
-        {yTicks.map((v, i) => (
-          <g key={`yt${i}`}>
-            <line x1={ML - 4} y1={toY(v)} x2={ML} y2={toY(v)} stroke="#A8BDD8" strokeWidth="1" />
-            <text x={ML - 8} y={toY(v) + 4} textAnchor="end" fontSize={11} fontWeight={600} fill="#3A5070" fontFamily="Nunito Sans, sans-serif">{v.toFixed(1)}</text>
-          </g>
-        ))}
-        <text x={14} y={MT + (SVG_H - MT - MB) / 2} textAnchor="middle" fontSize={13} fontWeight={700} fill="#0D2240" fontFamily="Nunito Sans, sans-serif" transform={`rotate(-90, 14, ${MT + (SVG_H - MT - MB) / 2})`}>ERA</text>
+          {/* Y ticks */}
+          {yTicks.map((v, i) => (
+            <g key={`yt${i}`}>
+              <line x1={ML - 4} y1={toY(v)} x2={ML} y2={toY(v)} stroke="#A8BDD8" strokeWidth="1" />
+              <text x={ML - 8} y={toY(v) + 4} textAnchor="end" fontSize={11} fontWeight={600} fill="#3A5070" fontFamily="Nunito Sans, sans-serif">{v.toFixed(1)}</text>
+            </g>
+          ))}
+          <text x={14} y={MT + (SVG_H - MT - MB) / 2} textAnchor="middle" fontSize={13} fontWeight={700} fill="#0D2240" fontFamily="Nunito Sans, sans-serif" transform={`rotate(-90, 14, ${MT + (SVG_H - MT - MB) / 2})`}>ERA</text>
 
-        {/* Dots and labels */}
-        {(() => {
-          // Smart label placement — offset away from neighboring dots
-          function getLabelOffset(team, allTeams) {
-            const COLLISION_RADIUS = 0.040;
-            const neighbors = allTeams.filter(t =>
-              t.id !== team.id &&
-              Math.abs(t.ops - team.ops) < COLLISION_RADIUS &&
-              Math.abs(t.era - team.era) < 1.5
-            );
-            let dx = 14, dy = 4, anchor = "start";
-            if (neighbors.length > 0) {
-              const cx = neighbors.reduce((s, t) => s + t.ops, 0) / neighbors.length;
-              const cy = neighbors.reduce((s, t) => s + t.era, 0) / neighbors.length;
-              if (team.ops >= cx) { dx = 14;  anchor = "start"; }
-              else                { dx = -14; anchor = "end"; }
-              if (team.era >= cy) { dy = 16; }
-              else                { dy = -8; }
-            }
-            return { dx, dy, anchor };
-          }
-
-          return plotTeams.map(t => {
+          {/* Dots */}
+          {plotTeams.map(t => {
             const cx = toX(t.ops), cy = toY(t.era);
             const isRVRH = t.id === "RVRH";
-            const tier = threatTierUI(t.score);
-            const dotFill = isRVRH ? "#001E50" : tier.bg;
-            const { dx, dy, anchor } = getLabelOffset(t, plotTeams);
+            const isHov = hoveredTeam === t.id;
+            const anyHov = hoveredTeam !== null;
             return (
-              <g key={t.id} onClick={() => onTeamClick(t.id)} style={{ cursor: "pointer" }}>
-                <circle cx={cx} cy={cy} r={10} fill={dotFill}
-                  stroke={isRVRH ? "#D4900A" : "none"} strokeWidth={isRVRH ? 2.5 : 0}
-                  opacity={0.92} />
-                {/* Team code label — all dots get one */}
-                <text x={cx + dx} y={cy + dy} textAnchor={anchor}
-                  fontSize={11} fontWeight={600} fill="#0D2240" fontFamily="Nunito Sans, sans-serif">{t.id}</text>
-                {/* RVRH also gets the callout annotation */}
-                {isRVRH && (
-                  <>
-                    <line x1={cx + 12} y1={cy} x2={cx + 22} y2={cy - 14} stroke="#A8BDD8" strokeWidth="1" />
-                    <text x={cx + 24} y={cy - 12} fontSize={12} fontWeight={800} fill="#001E50" fontFamily="Nunito Sans, sans-serif">{`River Hill \u00b7 ${rvrh.W}\u2013${rvrh.L}`}</text>
-                  </>
-                )}
+              <circle key={t.id} cx={cx} cy={cy}
+                r={isHov ? 15 : 10}
+                fill={isRVRH ? "#001E50" : tierColor(t)}
+                stroke={isRVRH ? "#D4900A" : "none"} strokeWidth={isRVRH ? 2 : 0}
+                opacity={anyHov && !isHov ? 0.3 : 1}
+                style={{ cursor: "pointer", transition: "r 0.15s, opacity 0.15s" }}
+                onMouseEnter={() => setHoveredTeam(t.id)}
+                onMouseLeave={() => setHoveredTeam(null)}
+                onClick={() => onTeamClick(t.id)}
+              />
+            );
+          })}
+
+          {/* Tooltip */}
+          {hoveredTeam && (() => {
+            const t = plotTeams.find(p => p.id === hoveredTeam);
+            if (!t) return null;
+            const x = toX(t.ops), y = toY(t.era);
+            const tx = x > SVG_W * 0.7 ? x - 140 : x + 18;
+            const ty = y < 60 ? y + 10 : y - 60;
+            return (
+              <g>
+                <rect x={tx} y={ty} width={130} height={58} fill="white" stroke="#C8D5E8" strokeWidth={1} rx={6} filter="drop-shadow(0 2px 4px rgba(0,0,0,0.12))" />
+                <text x={tx + 10} y={ty + 18} fontSize={12} fontWeight={700} fill="#001E50" fontFamily="Nunito Sans, sans-serif">{teamName(t.id)}</text>
+                <text x={tx + 10} y={ty + 34} fontSize={11} fill="#3A5070" fontFamily="Nunito Sans, sans-serif">{`${t.W}\u2013${t.L} \u00b7 ERA ${fix2(t.era)}`}</text>
+                <text x={tx + 10} y={ty + 50} fontSize={11} fill="#3A5070" fontFamily="Nunito Sans, sans-serif">{`OPS ${avg3(t.ops)}`}</text>
               </g>
             );
-          });
-        })()}
-      </svg>
-      <div className="scatter-legend">
-        <div className="scatter-legend-item"><div className="scatter-legend-dot" style={{ background: "#B83030" }} /> THREAT</div>
-        <div className="scatter-legend-item"><div className="scatter-legend-dot" style={{ background: "#B87010" }} /> MID</div>
-        <div className="scatter-legend-item"><div className="scatter-legend-dot" style={{ background: "#DDDAD2" }} /> WEAK</div>
+          })()}
+        </svg>
+
+        {/* Interactive legend */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 40, minWidth: 130 }}>
+          {legendTeams.map(t => (
+            <div key={t.id}
+              onMouseEnter={() => setHoveredTeam(t.id)}
+              onMouseLeave={() => setHoveredTeam(null)}
+              onClick={() => onTeamClick(t.id)}
+              style={{
+                display: "flex", alignItems: "center", gap: 7, padding: "4px 8px", borderRadius: 5,
+                cursor: "pointer",
+                borderLeft: hoveredTeam === t.id ? "3px solid var(--navy)" : "3px solid transparent",
+                background: hoveredTeam === t.id ? "var(--s2)" : "transparent",
+                opacity: hoveredTeam && hoveredTeam !== t.id ? 0.4 : 1,
+                transition: "all 0.15s",
+              }}>
+              <div style={{
+                width: 10, height: 10, borderRadius: "50%", flexShrink: 0,
+                background: t.id === "RVRH" ? "#001E50" : tierColor(t),
+                border: t.id === "RVRH" ? "2px solid #D4900A" : "none",
+              }} />
+              <span style={{
+                fontSize: 12, fontWeight: t.id === "RVRH" ? 700 : 500,
+                color: "var(--text)", fontFamily: "Nunito Sans, sans-serif", whiteSpace: "nowrap",
+              }}>{teamName(t.id)}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -923,10 +963,14 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
 
 function LeagueTab({ data, teams, onTeamClick }) {
   return (
-    <div>
-      <LeagueScatterPlot data={data} teams={teams} onTeamClick={onTeamClick} />
-      <StandingsTable data={data} teams={teams} onTeamClick={onTeamClick} />
-      <LeagueHeatMap data={data} teams={teams} onTeamClick={onTeamClick} />
+    <div className="league-layout">
+      <div className="league-col-left">
+        <LeagueScatterPlot data={data} teams={teams} onTeamClick={onTeamClick} />
+      </div>
+      <div className="league-col-right">
+        <StandingsTable data={data} teams={teams} onTeamClick={onTeamClick} />
+        <LeagueHeatMap data={data} teams={teams} onTeamClick={onTeamClick} />
+      </div>
     </div>
   );
 }
@@ -958,7 +1002,7 @@ function classifyTeamsForTab(data) {
   return { focal, scouted, limited, gameCounts };
 }
 
-function TeamsCardGrid({ data, teams, onTeamClick }) {
+function TeamsCardGrid({ data, teams, onTeamClick, activeTeam, desktopMode, rightPanelOnly }) {
   const { focal, scouted, limited, gameCounts } = useMemo(() => classifyTeamsForTab(data), [data]);
 
   // Tier 1 — Focal team cards
@@ -996,15 +1040,15 @@ function TeamsCardGrid({ data, teams, onTeamClick }) {
 
   const [showLimited, setShowLimited] = useState(false);
 
-  return (
-    <div>
-      {/* Tier 1 — Focal Teams */}
+  // Tier 1 — Focal team cards
+  const renderFocalCards = () => (
+    <>
       <div className="sec-title">Focal Teams</div>
       <div className="team-grid">
         {focalCards.map(c => {
           const tier = threatTierUI(c.score);
           return (
-            <div key={c.id} className="team-card"
+            <div key={c.id} className={`team-card${activeTeam === c.id ? " active" : ""}`}
               style={{ background: tier.bg, color: tier.textColor }}
               onClick={() => onTeamClick(c.id)}>
               <div className="team-card-name">{teamName(c.id)}</div>
@@ -1024,8 +1068,12 @@ function TeamsCardGrid({ data, teams, onTeamClick }) {
           );
         })}
       </div>
+    </>
+  );
 
-      {/* Tier 2 — Scouted Opponents */}
+  // Tier 2+3 — Scouted opponents + limited data
+  const renderScoutedAndLimited = () => (
+    <>
       {scoutedRows.length > 0 && (
         <>
           <div className="sec-title" style={{ marginTop: 22 }}>
@@ -1071,7 +1119,6 @@ function TeamsCardGrid({ data, teams, onTeamClick }) {
         </>
       )}
 
-      {/* Tier 3 — Limited Data */}
       {limited.length > 0 && (
         <div className="limited-acc">
           <div className="limited-acc-hdr" onClick={() => setShowLimited(v => !v)}>
@@ -1103,6 +1150,20 @@ function TeamsCardGrid({ data, teams, onTeamClick }) {
           )}
         </div>
       )}
+    </>
+  );
+
+  // rightPanelOnly = only Tier 2+3 (desktop right column default)
+  if (rightPanelOnly) return <div>{renderScoutedAndLimited()}</div>;
+
+  // desktopMode = only Tier 1 focal cards (desktop left column)
+  if (desktopMode) return <div>{renderFocalCards()}</div>;
+
+  // Default (mobile) = all three tiers stacked
+  return (
+    <div>
+      {renderFocalCards()}
+      {renderScoutedAndLimited()}
     </div>
   );
 }
@@ -1506,6 +1567,9 @@ function PlayerIntelligence({ data, playerName, teamId, onBack }) {
 }
 
 function TeamsTab({ data, teams, teamsState, selectedTeam, selectedPlayer, drawerState, setDrawerState, navigateToTeam, navigateToPlayer, navigateBack }) {
+  const isDesktop = useWindowWidth() >= DESKTOP_BP;
+
+  // State 3 (player intelligence) is always full-page
   if (teamsState === 3 && selectedPlayer && selectedTeam) {
     return (
       <PlayerIntelligence
@@ -1517,25 +1581,63 @@ function TeamsTab({ data, teams, teamsState, selectedTeam, selectedPlayer, drawe
     );
   }
 
-  if (teamsState === 2 && selectedTeam) {
+  // Mobile: existing full-page state machine
+  if (!isDesktop) {
+    if (teamsState === 2 && selectedTeam) {
+      return (
+        <TeamBriefing
+          data={data}
+          teamId={selectedTeam}
+          drawerState={drawerState}
+          setDrawerState={setDrawerState}
+          onPlayerClick={(tid, name) => navigateToPlayer(tid, name)}
+          onBack={() => navigateBack(1)}
+        />
+      );
+    }
     return (
-      <TeamBriefing
+      <TeamsCardGrid
         data={data}
-        teamId={selectedTeam}
-        drawerState={drawerState}
-        setDrawerState={setDrawerState}
-        onPlayerClick={(tid, name) => navigateToPlayer(tid, name)}
-        onBack={() => navigateBack(1)}
+        teams={teams}
+        onTeamClick={tid => navigateToTeam(tid)}
+        activeTeam={null}
       />
     );
   }
 
+  // Desktop: master-detail two-column layout
   return (
-    <TeamsCardGrid
-      data={data}
-      teams={teams}
-      onTeamClick={tid => navigateToTeam(tid)}
-    />
+    <div className="teams-layout">
+      <div className="teams-col-left">
+        <TeamsCardGrid
+          data={data}
+          teams={teams}
+          onTeamClick={tid => navigateToTeam(tid)}
+          activeTeam={teamsState === 2 ? selectedTeam : null}
+          desktopMode
+        />
+      </div>
+      <div className="teams-col-right">
+        {teamsState === 2 && selectedTeam ? (
+          <TeamBriefing
+            data={data}
+            teamId={selectedTeam}
+            drawerState={drawerState}
+            setDrawerState={setDrawerState}
+            onPlayerClick={(tid, name) => navigateToPlayer(tid, name)}
+            onBack={() => navigateBack(1)}
+          />
+        ) : (
+          <TeamsCardGrid
+            data={data}
+            teams={teams}
+            onTeamClick={tid => navigateToTeam(tid)}
+            activeTeam={null}
+            rightPanelOnly
+          />
+        )}
+      </div>
+    </div>
   );
 }
 
