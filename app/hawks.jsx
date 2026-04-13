@@ -629,8 +629,9 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
   const eraPad = Math.max(1.50, (eraDataMax - eraDataMin) * 0.40);
   const yMid = (eraDataMin + eraDataMax) / 2;
   const ySpan = Math.max((eraDataMax + eraPad) - (eraDataMin - eraPad), 8.00);
-  const yTop = yMid - ySpan / 2;     // best ERA — maps to SVG top
-  const yBottom = yMid + ySpan / 2;   // worst ERA — maps to SVG bottom
+  const yTopRaw = yMid - ySpan / 2;
+  const yTop = Math.max(0, yTopRaw);  // ERA can't be negative
+  const yBottom = yTop + ySpan;       // keep span consistent after clamping
 
   // SVG layout with 16px inset padding so dots at extremes aren't clipped
   const svgW = 600, svgH = 400, mx = 55, my = 40, mr = 20, mb = 45;
