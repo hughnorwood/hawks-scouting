@@ -588,8 +588,18 @@ function Th({ c, label, s, d, fn, left }) {
 // ─── LEAGUE TAB ─────────────────────────────────────────────────────────────
 
 function LeagueScatterPlot({ data, teams, onTeamClick }) {
+  // Only focal teams (4+ game appearances in game log)
+  const focalIds = useMemo(() => {
+    const counts = {};
+    data.gameLog.forEach(g => {
+      if (g.Away_Team) counts[g.Away_Team] = (counts[g.Away_Team] || 0) + 1;
+      if (g.Home_Team) counts[g.Home_Team] = (counts[g.Home_Team] || 0) + 1;
+    });
+    return Object.entries(counts).filter(([, c]) => c >= 4).map(([t]) => t);
+  }, [data]);
+
   const teamData = useMemo(() => {
-    return teams.all.map(id => {
+    return focalIds.map(id => {
       const s = teamSummary(data, id);
       const pt = playoffThreat(data, id);
       const rec = teamRecord(data, id);
@@ -598,29 +608,31 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
         score: pt ? pt.score : 0, W: rec.W, L: rec.L,
       };
     }).filter(t => t.ops > 0 || t.era > 0);
-  }, [data, teams]);
+  }, [data, focalIds]);
 
   if (teamData.length === 0) return null;
 
+  // Fixed ERA range: 0 (top) to 10 (bottom)
+  const eraMin = 0, eraMax = 10;
+  // OPS range from data with padding
   const pad = 0.03;
   const opsVals = teamData.map(t => t.ops);
-  const eraVals = teamData.map(t => t.era);
   const opsMin = Math.min(...opsVals) - pad, opsMax = Math.max(...opsVals) + pad;
-  const eraMin = Math.min(...eraVals) - 0.5, eraMax = Math.max(...eraVals) + 0.5;
 
   const W = 600, H = 400, mx = 55, my = 40, mr = 20, mb = 45;
   const pw = W - mx - mr, ph = H - my - mb;
 
   const scaleX = v => mx + ((v - opsMin) / (opsMax - opsMin)) * pw;
-  const scaleY = v => my + ((v - eraMin) / (eraMax - eraMin)) * ph;
+  // Inverted: ERA 0 at top (my), ERA 10 at bottom (my + ph)
+  const scaleY = v => my + (v / eraMax) * ph;
 
   const midX = (opsMin + opsMax) / 2;
-  const midY = (eraMin + eraMax) / 2;
+  const midY = eraMax / 2;
 
   const xStep = (opsMax - opsMin) / 5;
   const xTicks = Array.from({ length: 6 }, (_, i) => opsMin + i * xStep);
-  const yStep = (eraMax - eraMin) / 5;
-  const yTicks = Array.from({ length: 6 }, (_, i) => eraMin + i * yStep);
+  // Y ticks at 0, 2, 4, 6, 8, 10
+  const yTicks = [0, 2, 4, 6, 8, 10];
 
   return (
     <div className="scatter-wrap">
