@@ -58,7 +58,11 @@ Vercel auto-deploy — live app updated within minutes
 /
 ├── CLAUDE.md                    ← Claude Code instructions (not for chat use)
 ├── PROJECT_NOTES.md             ← this file
+├── .gitignore                   ← node_modules, dist, .env, .DS_Store, .claude/
 ├── .github/workflows/daily.yml  ← cron + manual trigger
+├── api/
+│   ├── chat.js                  ← Vercel serverless proxy for Ask tab
+│   └── ktg.js                   ← legacy proxy (unused by v5 app)
 ├── pipeline/
 │   ├── config.json              ← all 13 focal teams with GC IDs and app codes
 │   ├── scrape.py                ← Playwright scraper
@@ -70,18 +74,20 @@ Vercel auto-deploy — live app updated within minutes
 │   └── ingest.md                ← ingestion prompt (v6)
 ├── games/                       ← all Game_ID.md files, git-tracked permanently
 ├── data/
-│   └── RiverHill_Repository.xlsx
+│   └── RiverHill_Repository_Master.xlsx
 ├── public/
 │   └── repository.json          ← fetched by app on mount
 └── app/
-    └── hawks.jsx                ← React scouting dashboard
+    └── hawks.jsx                ← single-file React dashboard (no build step)
 ```
+
+**No build step.** Vercel serves `app/hawks.jsx` directly. There is no bundler, no `package.json`, no `node_modules` in the repo.
 
 ---
 
 ## The Data Model
 
-**Source of truth:** `data/RiverHill_Repository.xlsx` — 4 data sheets plus Roster.
+**Source of truth:** `data/RiverHill_Repository_Master.xlsx` — 4 data sheets plus Roster.
 
 **Read-only export:** `public/repository.json` — what the app actually loads.
 
@@ -151,23 +157,31 @@ Reads the structured markdown and extracts raw counting stats into JSON rows for
 
 ---
 
-## The App (hawks.jsx)
+## The App (hawks.jsx) — v5
 
-Single-file React app, no build step, deployed to Vercel.
+Single-file React app (~1,800 lines), no build step, deployed to Vercel.
+
+**Design principle:** "The app observes. The coach concludes." No interpretive text outside the Ask tab. Data labels and stat abbreviations only.
 
 **Data flow:** `fetch("/repository.json")` on mount → `parseData(json)` → `classifyTeams()` → render
 
-**Three tabs:**
-- **League** — all teams with stats, clickable into TeamProfile drill-down
-- **Matchup** — head-to-head comparison between any two teams
-- **Chat** — Claude-powered chat using Anthropic API (already built into the app)
+**Three tabs (v5 architecture, April 2026):**
+- **League** — SVG scatter plot (OPS × ERA, interactive hover legend), sortable standings table (RVRH pinned), sortable heat map (gray→amber→red). Desktop: two-column layout at ≥1280px. All elements navigate to Teams State 2.
+- **Teams** — 3-state progressive disclosure:
+  - State 1: focal team card grid (threat-sorted, 13 hardcoded teams) + scouted opponents table (4+ games) + limited data accordion. Desktop: master-detail layout.
+  - State 2: team briefing — sticky slim header (W-L · ERA · WHIP · last 3 results), 3 drawers (Pitching with outing strips / Lineup sortable table / Team Discipline with fielding, battery, baserunning, situational hitting). Player names tappable.
+  - State 3: player intelligence — summary strip, Season/Last10/Last5 filters, sortable game log. Always full-page.
+- **Ask** — Claude-powered chat via `/api/chat` Vercel serverless proxy. Only tab that makes API calls. Empty state with 5 coaching-oriented suggestion prompts.
 
 **Key analytical functions (do not break):**
 - `hitterThreat(b)` — OBP×40% + SLG×30% + (RBI/H)×15% + Contact×15%; min 8 PA
 - `pitcherImpact(p)` — K/9×30% + Control×25% + ERA×25% + WHIP×20%; min 9 outs
-- `playoffThreat(data, teamId)` — composite threat score for opponent teams
+- `playoffThreat(data, teamId)` — composite threat score; 4 internal tiers mapped to 3 UI tiers (THREAT ≥55, MID 25-54, WEAK <25)
 - `defensiveTargets(data, teamId)` — error counts per fielder
-- `matchupExploits(sA, sB, ...)` — auto-generated strategy bullets
+- `teamRecord(data, teamId)` — W/L/RS/RA/streak/last5 from game log
+- `buildChatSystem(data)` — pre-aggregates all data into tab-separated context for Ask tab
+
+**Removed in v5:** Matchup tab, Players tab, `matchupExploits()`, `buildKTGSystem()`, file upload UI, Vite build scaffold
 
 ---
 
@@ -227,12 +241,24 @@ Pushing `.github/workflows/` files requires the `workflow` scope on the GitHub P
 
 ## Current Status (April 2026)
 
-- ✅ Full pipeline live and running
+### Pipeline
+- ✅ Full pipeline live and running (daily 6am ET cron + manual dispatch)
 - ✅ All 6 build steps complete
-- ✅ Backfill in progress — pipeline processing historical games not previously retained as markdown
-- ✅ Rate limit workaround in place (60-second delay between calls)
+- ✅ Backfill complete — all 13 focal teams backfilled; 4,153+ rows in repository
+- ✅ Rate limit workaround in place (15-second delay between calls)
 - ✅ Batter misattribution bug fixed in transcribe.md v4.1
-- ⚠️ Backfill games should be spot-checked for transcription accuracy — the v4.0 prompt processed early games before the misattribution fix
+- ⚠️ ~10 gate failures pending retry (`.md` exists but not in Excel Game_Log)
+- ⚠️ Backfill games transcribed with v4.0 should be spot-checked for misattribution
+
+### App (v5 redesign — completed April 13, 2026)
+- ✅ 3-tab architecture live (League / Teams / Ask)
+- ✅ Desktop two-column layouts at ≥1280px
+- ✅ Interactive scatter plot with hover legend
+- ✅ Sortable standings and heat map with full team names
+- ✅ 3-tier Teams tab (focal cards, scouted table, limited accordion)
+- ✅ Team briefing with pitcher outing strips and 3 drawers
+- ✅ Player intelligence with game log filters
+- ✅ Repo cleaned — no Vite scaffold, no node_modules, no dist/
 
 ---
 

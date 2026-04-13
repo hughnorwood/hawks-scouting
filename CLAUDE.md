@@ -20,9 +20,13 @@ The pipeline was previously a manual HITL workflow: copy-paste from GC → Claud
 /
 ├── CLAUDE.md                          ← this file
 ├── PROJECT_NOTES.md                   ← chat-context knowledge base (not for Claude Code)
+├── .gitignore                         ← node_modules, dist, .env, .DS_Store, .claude/
 ├── .github/
 │   └── workflows/
 │       └── daily.yml                  ← cron job: runs pipeline, commits, pushes
+├── api/
+│   ├── chat.js                        ← Vercel serverless proxy for Ask tab (Anthropic API)
+│   └── ktg.js                         ← legacy Keys-to-the-Game proxy (unused by v5 app)
 ├── pipeline/
 │   ├── config.json                    ← GC team IDs, focal team codes, state
 │   ├── scrape.py                      ← Playwright: GC login → raw play-by-play text
@@ -38,8 +42,10 @@ The pipeline was previously a manual HITL workflow: copy-paste from GC → Claud
 ├── public/
 │   └── repository.json                ← auto-exported, fetched by app on mount
 └── app/
-    └── hawks.jsx                      ← scouting dashboard (React, deployed to Vercel)
+    └── hawks.jsx                      ← scouting dashboard (single-file React, deployed to Vercel)
 ```
+
+**No build step.** Vercel serves `app/hawks.jsx` directly. There is no Vite, no bundler, no `package.json`. The `api/` directory contains Vercel serverless functions that proxy Anthropic API calls.
 
 ---
 
@@ -196,26 +202,49 @@ All numeric fields must be exported as numbers, not strings. Date fields export 
 
 ## App Architecture
 
-**File:** `app/hawks.jsx`
+**File:** `app/hawks.jsx` (~1,800 lines, single source of truth)
 **Framework:** React (single file, no build step — deployed as-is to Vercel)
-**Data source:** `fetch("/repository.json")` on mount — NOT a file upload
+**Data source:** `fetch("/repository.json")` on mount
+**Design principle:** "The app observes. The coach concludes." No interpretive text outside the Ask tab.
+
+### Key Constants
+- `FOCAL_TEAMS` — hardcoded array of 13 team codes used by League visualizations and Teams card grid
+- `TEAM_NAMES` — map of team codes to display names (e.g., `RVRH → "River Hill"`)
+- `DESKTOP_BP = 1280` — breakpoint for two-column desktop layout
 
 ### Key App Functions (do not break these)
 - `parseData(json)` — receives JSON object, returns `{ gameLog, batting, pitching, fielding }`
 - `classifyTeams(data)` — identifies focal teams (≥4 games as Focal_Team) vs. opponents
+- `classifyTeamsForTab(data)` — splits all teams into focal / scouted (4+ games) / limited (<4 games) for Teams tab
 - `aggBatting(rows)` — aggregates raw batting rows into per-player season totals
 - `aggPitching(rows)` — aggregates raw pitching rows into per-player season totals
-- `teamSummary(data, teamId)` — full team stats object used by TeamProfile tab
+- `teamSummary(data, teamId)` — full team stats object
+- `teamRecord(data, teamId)` — W/L/RS/RA/streak/last5 derived from game log appearances
 - `hitterThreat(b)` — scoring: OBP×40% + SLG×30% + (RBI/H)×15% + Contact×15%; minimum 8 PA
 - `pitcherImpact(p)` — scoring: K/9×30% + Control×25% + ERA×25% + WHIP×20%; minimum 9 outs
-- `playoffThreat(data, teamId)` — composite threat score for opponent teams
+- `pitcherRole(p)` — Starter (≥9 avg outs) / Reliever (≥4.5) / Setup-Closer
+- `playoffThreat(data, teamId)` — composite threat score; returns 4 internal tiers mapped to 3 UI tiers (THREAT ≥55, MID 25-54, WEAK <25)
 - `defensiveTargets(data, teamId)` — error counts per fielder
-- `matchupExploits(sA, sB, ...)` — auto-generated strategy bullets
+- `opponentRotation(data, teamId)` — starting pitcher patterns
+- `buildChatSystem(data)` — builds full data context string for Ask tab Claude calls
+- `heatCell(value, min, max, lowerIsBetter)` — heat map cell color (gray→amber→red scale)
+- `threatTierUI(score)` — maps threat score to 3-tier display colors
+- `useWindowWidth()` — hook for responsive desktop/mobile layout switching
+- `useSort(data, defaultCol, defaultDir)` — reusable table sorting hook
 
-### Tabs
-- **League** — all teams, clickable → TeamProfile drill-down
-- **Matchup** — head-to-head comparison, focal team vs. any opponent
-- **Chat** — Claude-powered chat tab using Anthropic API
+### Tabs (3-tab architecture, v5)
+- **League** — scatter plot (SVG), standings table, heat map. Desktop: two-column (scatter left, tables right). All elements navigate to Teams State 2.
+- **Teams** — 3-state progressive disclosure:
+  - State 1: focal team card grid (threat-sorted) + scouted opponents table + limited data accordion. Desktop: master-detail (cards left, content right).
+  - State 2: team briefing with sticky header, 3 drawers (Pitching/Lineup/Team Discipline). Pitcher outing strips. Player names tappable → State 3.
+  - State 3: player intelligence — summary strip, Season/Last10/Last5 filters, sortable game log. Always full-page.
+- **Ask** — Claude-powered chat using `/api/chat` proxy. Only tab that makes API calls. Empty state with 5 suggestion prompts.
+
+### Removed in v5 (April 2026)
+- Matchup tab and `matchupExploits()`, `buildKTGSystem()` functions
+- Players tab (absorbed into Teams State 3)
+- File upload UI (data auto-loads from JSON)
+- Vite build scaffold (`src/`, `package.json`, `node_modules/`)
 
 ---
 
@@ -310,12 +339,14 @@ Vercel auto-deploys on push to main — no additional step needed.
 - **Team-level gates do not catch misattributions.** G1-G4 verify team hit and run totals — a stat misattributed to the wrong player can pass all gates if team totals still balance. Per-player PA reconciliation in `ingest.py` is the additional safeguard.
 - **NRTH alias is ambiguous.** `NRTH→NHRF` is correct for North Harford games but incorrect for North County, Northeast, or North Point. Verify manually when "North" teams appear.
 - **The Excel filename is `RiverHill_Repository_Master.xlsx`** — not `RiverHill_Repository.xlsx`.
-- **The `focal` team classification** in the app uses ≥4 appearances as `Focal_Team` in Game_Log. Do not hardcode team names — read from data.
+- **Focal team list is hardcoded** in the app as `FOCAL_TEAMS` (13 teams). The League scatter plot, standings table, and heat map all filter to this list. The `classifyTeams()` function still derives focal teams dynamically for the Ask tab's data context, but the UI components use the hardcoded array.
+- **Team display names** use the `TEAM_NAMES` map and `teamName()` helper. Add new teams there when expanding the focal list.
 
 ---
 
 ## Current State (April 2026)
 
+### Pipeline
 - ✅ **All 6 build steps complete** — full pipeline live
 - ✅ **Backfill complete** — all 13 focal teams backfilled; 4,153+ rows in repository
 - ⚠️ **~10 gate failures pending retry** — `.md` files exist in `games/` but no matching rows in Excel `Game_Log`. To find: compare `games/*.md` filenames against Game_Log Game_IDs. To retry: `python pipeline/ingest.py games/{game_file}.md`
@@ -323,6 +354,16 @@ Vercel auto-deploys on push to main — no additional step needed.
 - ⚠️ **Backfill games transcribed with v4.0 should be spot-checked** — any game where a walk-off or late-inning play had a "next batter" header adjacent to the final play is a misattribution risk
 - ✅ **Rate limit handling** — 15s delays between API calls; `|| continue` resilience in workflow
 - ✅ **Session persistence** — `gc_session.json` cached in Actions; login only on expiry
+
+### App (v5 redesign — completed April 13, 2026)
+- ✅ **3-tab architecture** — League / Teams / Ask (replaced 5-tab v4: League/Matchup/Teams/Players/Chat)
+- ✅ **League tab** — SVG scatter plot with interactive hover legend, sortable standings table (RVRH pinned), sortable heat map (gray→amber→red color scale)
+- ✅ **Teams tab** — 3-tier card grid (focal / scouted opponents / limited data), 3-state drill-down (cards → briefing → player intelligence), pitcher outing strips, drawer-based briefing
+- ✅ **Ask tab** — renamed from Chat, restyled, 5 suggestion prompts, same Claude API logic
+- ✅ **Desktop layout** — two-column at ≥1280px for both League and Teams tabs
+- ✅ **Full team names** — TEAM_NAMES map applied to standings, heat map, cards, briefing headers
+- ✅ **Design system** — updated colors (#001E50 navy, #D4900A gold), 10px radius, Courier New for stats, 44px touch targets
+- ✅ **Repo cleanup** — removed Vite scaffold, node_modules, dist/ from repo
 
 ---
 
