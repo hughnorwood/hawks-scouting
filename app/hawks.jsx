@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const num  = v => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
@@ -103,7 +103,6 @@ function teamSummary(data, teamId) {
 
 // ─── ANALYTICAL SCORING ──────────────────────────────────────────────────────
 
-// Hitter Threat: OBP×40% + SLG×30% + (RBI/H)×15% + Contact(1−K/PA)×15%
 function hitterThreat(b) {
   if (b.PA < 8) return { score: 0, tier: "LIMITED", color: "var(--muted)" };
   const rbiPerH = b.H > 0 ? Math.min(b.RBI / b.H, 1) : 0;
@@ -115,7 +114,6 @@ function hitterThreat(b) {
   return { score, tier: "LOW", color: "var(--muted)" };
 }
 
-// Pitcher Impact: K/9 norm×30% + Control norm×25% + ERA norm×25% + WHIP norm×20%
 function pitcherImpact(p) {
   if (p.Outs < 9) return { score: 0, tier: "LIMITED", color: "var(--muted)", emoji: "⚪" };
   const IP = p.Outs / 3;
@@ -130,7 +128,6 @@ function pitcherImpact(p) {
   return { score, tier: "BELOW AVG", color: "var(--muted)", emoji: "⚪" };
 }
 
-// Pitcher Role — Starter ≥9 avg outs, Reliever ≥4.5, else Setup/Closer
 function pitcherRole(p) {
   if (p.G === 0) return "—";
   const avgOuts = p.Outs / p.G;
@@ -139,7 +136,6 @@ function pitcherRole(p) {
   return "Setup/Closer";
 }
 
-// Playoff Threat Matrix — opponent teams only
 function playoffThreat(data, teamId) {
   const games = data.gameLog.filter(g => g.Away_Team === teamId || g.Home_Team === teamId);
   if (games.length === 0) return null;
@@ -172,7 +168,6 @@ function playoffThreat(data, teamId) {
   const teamWHIP = safe(tPH + tBB, IP);
   const errors = data.fielding.filter(r => r.Team === teamId).length;
   const ePG = errors / G;
-  // Composite: winPct(30) + offense(25) + pitching(25) + defense(20)
   const offScore  = Math.min((rpg / 10) * 25, 25);
   const pitScore  = Math.max((1 - teamERA / 15) * 25, 0);
   const defScore  = Math.max((1 - ePG / 4) * 20, 0);
@@ -185,7 +180,6 @@ function playoffThreat(data, teamId) {
   return { score, tier, tierColor, G, W, L: G - W, rpg, rapg, teamAVG, teamOBP, teamSLG, teamERA, teamWHIP, ePG };
 }
 
-// Defensive Targets — error-prone players on a team
 function defensiveTargets(data, teamId) {
   const errMap = {};
   const games = data.gameLog.filter(g => g.Away_Team === teamId || g.Home_Team === teamId);
@@ -200,35 +194,6 @@ function defensiveTargets(data, teamId) {
     .sort((a, b) => b.Errors - a.Errors);
 }
 
-// Matchup Exploits — auto-generated strategy bullets for focal vs opponent
-function matchupExploits(sA, sB, teamAId, teamBId) {
-  const exploits = [];
-  // High ERA opponent = attack early
-  if (sB.ERA >= 5) exploits.push({ cat: "offense", text: `${teamBId} team ERA ${fix2(sB.ERA)} — attack early in counts, force them to throw strikes` });
-  else if (sB.ERA >= 3.5) exploits.push({ cat: "offense", text: `${teamBId} ERA ${fix2(sB.ERA)} — be selective, wait for mistakes` });
-  // High WHIP = free baserunners
-  if (sB.WHIP >= 1.8) exploits.push({ cat: "offense", text: `${teamBId} WHIP ${fix2(sB.WHIP)} — patience at the plate, high walk/HBP opportunity` });
-  // Walk-prone pitching
-  if (sB.BBPct >= 0.12) exploits.push({ cat: "offense", text: `${teamBId} BB% ${pct(sB.BBPct)} — take pitches, draw walks, extend innings` });
-  // Stolen base opportunity vs errors
-  if (sB.errors >= 3 && sA.teamSB >= 4) exploits.push({ cat: "baserunning", text: `${teamBId} ${sB.errors} errors — run aggressively, put pressure on defense` });
-  else if (sB.errors >= 2) exploits.push({ cat: "baserunning", text: `${teamBId} error-prone (${sB.errors} E) — force plays, exploit defensive miscues` });
-  // Pitching approach vs opponent lineup
-  if (sB.teamAVG >= 0.300) exploits.push({ cat: "pitching", text: `${teamBId} AVG ${avg3(sB.teamAVG)} — pitch to weak contact, avoid middle of zone` });
-  if ((sB.teamOBP + sB.teamSLG) >= 0.800) exploits.push({ cat: "pitching", text: `${teamBId} OPS ${avg3(sB.teamOBP + sB.teamSLG)} — change speeds, keep hitters off-balance` });
-  // K-prone lineup
-  const tPA = sB.batters.reduce((s,r) => s + r.PA, 0);
-  const tK  = sB.batters.reduce((s,r) => s + r.K, 0);
-  const oppKPct = safe(tK, tPA);
-  if (oppKPct >= 0.22) exploits.push({ cat: "pitching", text: `${teamBId} K% ${pct(oppKPct)} — attack zone aggressively, use breaking stuff ahead in count` });
-  // Our strengths to leverage
-  if (sA.KBB >= 2.5) exploits.push({ cat: "advantage", text: `${teamAId} K/BB ${fix1(sA.KBB)} — elite command, trust pitching to control game` });
-  if (sA.teamSB >= 6) exploits.push({ cat: "advantage", text: `${teamAId} ${sA.teamSB} SB — speed is a weapon, run at every opportunity` });
-  if (sA.ERA <= 2.5) exploits.push({ cat: "advantage", text: `${teamAId} ERA ${fix2(sA.ERA)} — pitching will keep you in every game, play small ball` });
-  return exploits;
-}
-
-// Opponent Rotations — identify starters and their patterns
 function opponentRotation(data, teamId) {
   const games = data.gameLog.filter(g => g.Away_Team === teamId || g.Home_Team === teamId)
     .sort((a, b) => String(a.Game_Date).localeCompare(String(b.Game_Date)));
@@ -237,12 +202,10 @@ function opponentRotation(data, teamId) {
     const pRows = data.pitching.filter(r => r.Team === teamId && r.Game_ID === g.Game_ID)
       .sort((a, b) => num(b.Outs_Recorded) - num(a.Outs_Recorded));
     if (pRows.length > 0) {
-      // First pitcher listed (or one with most outs) is likely starter
       const starter = pRows[0];
       starters.push({ pitcher: starter.Pitcher, gameId: g.Game_ID, date: g.Game_Date, outs: num(starter.Outs_Recorded), IP: fmtIP(num(starter.Outs_Recorded)) });
     }
   }
-  // Aggregate per pitcher
   const pitcherMap = {};
   for (const s of starters) {
     if (!pitcherMap[s.pitcher]) pitcherMap[s.pitcher] = { pitcher: s.pitcher, starts: 0, totalOuts: 0, dates: [] };
@@ -256,7 +219,7 @@ function opponentRotation(data, teamId) {
 }
 
 // ─── Claude API ───────────────────────────────────────────────────────────────
-async function callClaude(system, user, maxTokens = 1500, endpoint = "/api/ktg") {
+async function callClaude(system, user, maxTokens = 1500, endpoint = "/api/chat") {
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -272,79 +235,10 @@ async function callClaude(system, user, maxTokens = 1500, endpoint = "/api/ktg")
   return d.content?.find(b => b.type === "text")?.text || "";
 }
 
-function buildKTGSystem(data, teamA, teamB) {
-  const focalCounts = {};
-  data.gameLog.forEach(g => { if (g.Focal_Team) focalCounts[g.Focal_Team] = (focalCounts[g.Focal_Team] || 0) + 1; });
-  const isFocal = id => (focalCounts[id] || 0) >= 4;
-
-  const snap = id => {
-    const s = teamSummary(data, id);
-    const focal = isFocal(id);
-    const tier = focal
-      ? `FOCAL — ${s.G} games`
-      : `OPPONENT INTEL — ${s.G} game${s.G !== 1 ? "s" : ""} — treat as limited sample`;
-
-    const pp = [...s.pitchers].sort((a, b) => b.Outs - a.Outs).slice(0, 4).map(p => {
-      const reliable = p.Outs >= 24;
-      const imp = pitcherImpact(p);
-      const tierTag = imp.tier !== "LIMITED" ? `,Impact=${imp.tier}` : "";
-      return reliable
-        ? `${p.Pitcher}[IP=${fmtIP(p.Outs)},ERA=${fix2(p.ERA)},WHIP=${fix2(p.WHIP)},K=${p.K},BB=${p.BB},K/BB=${fix1(clamp(p.KBB,20))},BB%=${pct(p.BBPct)}${tierTag}]`
-        : `${p.Pitcher}[LIMITED,IP=${fmtIP(p.Outs)},K=${p.K},BB=${p.BB}]`;
-    }).join(" ");
-
-    const bp = [...s.batters].sort((a, b) => b.PA - a.PA).slice(0, 6).map(b => {
-      const reliable = b.PA >= 12;
-      const ht = hitterThreat(b);
-      const tierTag = ht.tier !== "LIMITED" ? `,Threat=${ht.tier}` : "";
-      return reliable
-        ? `${b.Player}[PA=${b.PA},AVG=${avg3(b.AVG)},OPS=${avg3(b.OPS)},HR=${b.HR},SB=${b.SB},BB%=${pct(safe(b.BB,b.PA))},K%=${pct(safe(b.K,b.PA))}${tierTag}]`
-        : `${b.Player}[LIMITED,PA=${b.PA},HR=${b.HR},SB=${b.SB}]`;
-    }).join(" ");
-
-    return `=== ${id} [${tier}] ===
-Record: ${s.W}-${s.L} · ERA ${fix2(s.ERA)} · WHIP ${fix2(s.WHIP)} · K/BB ${fix1(clamp(s.KBB,20))} · TeamAVG ${avg3(s.teamAVG)} · TeamOPS ${avg3(s.teamOBP+s.teamSLG)} · SB ${s.teamSB} · HR ${s.teamHR} · Errors ${s.errors}
-Pitchers: ${pp || "none"}
-Batters: ${bp || "none"}`;
-  };
-
-  return `You are a HS baseball analyst. Produce "Keys to the Game" for ${teamA} vs ${teamB}.
-Return ONLY valid JSON — no markdown, no backticks, no explanation.
-
-${snap(teamA)}
-
-${snap(teamB)}
-
-SIGNAL RULES:
-- [LIMITED] players: cite only counting stats (HR, SB, K). No rate stats.
-- OPPONENT INTEL teams: qualify every claim with "in limited data".
-- FOCAL teams with reliable players: strong, direct claims appropriate.
-- Threat=ELITE or HIGH batters: call them out by name as key matchup dangers.
-- Impact=ACE or QUALITY pitchers: emphasize their dominance or vulnerability.
-- Team-level totals (ERA, WHIP, TeamAVG, SB, Errors) are always reliable.
-
-OUTPUT: For each team, produce three sections from THAT TEAM'S perspective — what they must do to win:
-- hitting: how this team should attack the opponent's pitching. Exactly 3 keys.
-- pitching: how this team's pitchers should attack the opponent's lineup. Exactly 3 keys.
-- strategy: baserunning, stolen bases, error tendencies, defensive edge. Exactly 2 keys.
-
-CRITICAL — each key must be 10 words or fewer. Format: "[Evidence] — [Action]"
-Good examples:
-  "Walsh BB%=14% — draw walks, extend every AB"
-  "Opp K%=28% — pound zone, make them earn hits"
-  "12 team SBs — run early, exploit slow delivery"
-  "3 errors/game — put ball in play, force chances"
-Numbers first. One sharp action required. No filler words.
-
-JSON format:
-{"teamA":{"hitting":["","",""],"pitching":["","",""],"strategy":["",""]},"teamB":{"hitting":["","",""],"pitching":["","",""],"strategy":["",""]}}`;
-}
-
 function buildChatSystem(data) {
   const tab = (rows, cols) => [cols.join("\t"), ...rows.map(r => cols.map(c => r[c] ?? "").join("\t"))].join("\n");
   const teams = classifyTeams(data);
 
-  // Pre-aggregate team summaries
   const teamRows = teams.all.map(id => {
     const s = teamSummary(data, id);
     return {
@@ -357,14 +251,12 @@ function buildChatSystem(data) {
     };
   });
 
-  // Pre-aggregate batting — one row per player per team (season totals)
   const batters = teams.all.flatMap(id =>
     aggBatting(data.batting.filter(r => r.Team === id))
       .map(r => ({ Team: id, ...r,
         AVG: avg3(r.AVG), OBP: avg3(r.OBP), SLG: avg3(r.SLG), OPS: avg3(r.OPS) }))
   ).sort((a, b) => b.PA - a.PA);
 
-  // Pre-aggregate pitching — one row per pitcher per team (season totals)
   const pitchers = teams.all.flatMap(id =>
     aggPitching(data.pitching.filter(r => r.Team === id))
       .map(r => ({ Team: id, ...r,
@@ -388,35 +280,83 @@ ${tab(pitchers, ["Team","Pitcher","G","IP","BF","H","BB","K","R","HR","ERA","WHI
 ${tab(data.gameLog, ["Game_ID","Game_Date","Game_Type","Focal_Team","Away_Team","Home_Team","Away_R","Home_R","Away_H","Home_H","Away_E","Home_E"])}`;
 }
 
+// ─── NEW HELPERS ─────────────────────────────────────────────────────────────
+
+function threatTierUI(score) {
+  if (score >= 55) return { label: "THREAT", bg: "#B83030", textColor: "#fff" };
+  if (score >= 25) return { label: "MID",    bg: "#B87010", textColor: "#fff" };
+  return { label: "WEAK", bg: "#DDDAD2", textColor: "var(--text)" };
+}
+
+function teamRecord(data, teamId) {
+  const games = data.gameLog
+    .filter(g => g.Away_Team === teamId || g.Home_Team === teamId)
+    .sort((a, b) => String(b.Game_Date).localeCompare(String(a.Game_Date)));
+
+  const results = games.map(g => {
+    const ar = num(g.Away_R), hr = num(g.Home_R);
+    const tr = g.Away_Team === teamId ? ar : hr;
+    const or = g.Away_Team === teamId ? hr : ar;
+    return { W: tr > or, L: tr < or, rs: tr, ra: or, date: g.Game_Date };
+  });
+
+  const last5 = results.slice(0, 5);
+
+  let streakType = results[0]?.W ? "W" : "L";
+  let streakCount = 0;
+  for (const r of results) {
+    if ((streakType === "W" && r.W) || (streakType === "L" && r.L)) streakCount++;
+    else break;
+  }
+  const streak = results.length > 0 ? `${streakType}${streakCount}` : "—";
+
+  const W = results.filter(r => r.W).length;
+  const L = results.filter(r => r.L).length;
+  const RS = results.reduce((s, r) => s + r.rs, 0);
+  const RA = results.reduce((s, r) => s + r.ra, 0);
+
+  return { W, L, RS, RA, diff: RS - RA, streak, last5, results };
+}
+
+function heatColor(value, min, max, lowerIsBetter) {
+  const t = max === min ? 0.5 : (value - min) / (max - min);
+  const quality = lowerIsBetter ? 1 - t : t;
+  const r = Math.round(184 * (1 - quality) + 59 * quality);
+  const g = Math.round(48 * (1 - quality) + 109 * quality);
+  const b = Math.round(48 * (1 - quality) + 17 * quality);
+  return `rgba(${r}, ${g}, ${b}, 0.22)`;
+}
+
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 const CSS = `
 
 @import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:opsz,wght@6..12,300;6..12,400;6..12,500;6..12,600;6..12,700;6..12,800&display=swap');
 
 :root {
-  --bg:    #EEF2F8;
-  --s1:    #FFFFFF;
-  --s2:    #F3F6FB;
-  --s3:    #E4ECF5;
-  --bd:    #C8D5E8;
-  --bd2:   #A8BDD8;
-  --navy:  #002868;
-  --navy2: #003DA6;
-  --gold:  #E8A020;
-  --gold-d:rgba(232,160,32,.12);
-  --gold-t:#8B5008;
-  --red:   #B83030;
-  --red-d: rgba(184,48,48,.1);
-  --green: #1A7040;
-  --green-d:rgba(26,112,64,.1);
-  --blue:  #4A90D4;
-  --blue-d:rgba(74,144,212,.12);
-  --amber: #B86010;
-  --amber-d:rgba(184,96,16,.1);
-  --muted: #6888A8;
-  --text:  #0D2240;
-  --text2: #3A5070;
-  --radius:8px;
+  --bg:       #EEF2F8;
+  --s1:       #FFFFFF;
+  --s2:       #F3F6FB;
+  --s3:       #E4ECF5;
+  --bd:       #C8D5E8;
+  --bd2:      #A8BDD8;
+  --navy:     #001E50;
+  --gold:     #D4900A;
+  --gold-t:   #8B5010;
+  --gold-d:   rgba(212,144,10,.12);
+  --red:      #B83030;
+  --red-d:    rgba(184,48,48,.10);
+  --green:    #3B6D11;
+  --green-d:  rgba(59,109,17,.10);
+  --blue:     #1A5FA8;
+  --blue-d:   rgba(26,95,168,.12);
+  --amber:    #8B5010;
+  --amber-d:  rgba(139,80,16,.10);
+  --purple:   #5A4A8A;
+  --purple-d: rgba(90,74,138,.10);
+  --muted:    #6888A8;
+  --text:     #0D2240;
+  --text2:    #3A5070;
+  --radius:   10px;
 }
 *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
 body { background:var(--bg); color:var(--text); font-family:'Nunito Sans',sans-serif; font-size:15px; -webkit-font-smoothing:antialiased; }
@@ -426,2320 +366,981 @@ body { background:var(--bg); color:var(--text); font-family:'Nunito Sans',sans-s
 .topbar { height:56px; border-bottom:2px solid var(--navy); display:flex; align-items:center; padding:0 20px; gap:14px; position:sticky; top:0; background:var(--navy); z-index:100; }
 .brand { font-size:18px; font-weight:800; color:#FFFFFF; letter-spacing:1.5px; white-space:nowrap; }
 .brand span { color:var(--gold); }
-.focal-select { background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.3); border-radius:6px; color:#FFFFFF; font-family:'Nunito Sans'; font-size:13px; padding:5px 10px; outline:none; cursor:pointer; }
-.focal-select option { background:var(--navy); color:#fff; }
-.focal-select:focus { border-color:var(--gold); }
 .spacer { flex:1; }
-.load-btn { background:none; border:1px solid rgba(255,255,255,.4); border-radius:6px; color:rgba(255,255,255,.85); font-family:'Nunito Sans'; font-size:12px; padding:5px 12px; cursor:pointer; transition:all .15s; }
-.load-btn:hover { border-color:#fff; color:#fff; }
 .tabs { display:flex; border-bottom:1px solid var(--bd); padding:0 20px; background:var(--s1); }
-.tab { font-family:'Nunito Sans'; font-weight:600; font-size:14px; padding:12px 18px; cursor:pointer; color:var(--muted); border-bottom:3px solid transparent; transition:all .15s; white-space:nowrap; letter-spacing:.3px; }
+.tab { font-family:'Nunito Sans'; font-weight:600; font-size:14px; padding:12px 18px; cursor:pointer; color:var(--muted); border-bottom:3px solid transparent; transition:all .15s; white-space:nowrap; letter-spacing:.3px; min-height:44px; display:flex; align-items:center; }
 .tab:hover { color:var(--navy); }
 .tab.on { color:var(--navy); border-bottom-color:var(--gold); font-weight:700; }
 .main { padding:20px; max-width:1280px; margin:0 auto; }
 
-/* upload */
-.upload-wrap { max-width:480px; margin:4rem auto; }
-.upload-zone { border:2px dashed var(--bd2); border-radius:var(--radius); padding:3rem 2rem; text-align:center; cursor:pointer; transition:all .15s; background:var(--s1); }
-.upload-zone:hover, .upload-zone.drag { border-color:var(--navy); background:var(--s2); }
-.upload-zone h2 { font-weight:800; font-size:22px; margin:12px 0 6px; color:var(--navy); }
-.upload-zone p { font-size:13px; color:var(--muted); }
-.upload-btn { background:var(--navy); color:#fff; border:none; border-radius:6px; font-family:'Nunito Sans'; font-weight:700; font-size:14px; padding:10px 22px; cursor:pointer; margin-top:16px; transition:opacity .15s; }
-.upload-btn:hover { opacity:.88; }
+/* loading */
+.loading-wrap { display:flex; align-items:center; justify-content:center; height:60vh; }
+.loading-wrap p { font-size:15px; color:var(--muted); font-weight:600; }
 
 /* cards / surfaces */
-.card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.stat-card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:16px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.stat-card-label { font-family:'Nunito Sans'; font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; }
-.stat-card-value { font-family:'Nunito Sans'; font-size:30px; font-weight:800; line-height:1; color:var(--navy); font-variant-numeric:tabular-nums; }
-.stat-card-sub { font-size:12px; color:var(--muted); margin-top:4px; }
-.g4 { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px; }
-.g3 { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
-.g2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-@media(max-width:800px) { .g4{grid-template-columns:repeat(2,1fr)} .g3{grid-template-columns:1fr 1fr} .g2{grid-template-columns:1fr} }
-
-/* section headers */
-.sec-title { font-family:'Nunito Sans'; font-size:10px; font-weight:800; color:var(--navy); text-transform:uppercase; letter-spacing:1.2px; padding-bottom:10px; border-bottom:2px solid var(--navy); margin-bottom:14px; }
+.card { background:var(--s1); border:0.5px solid var(--bd); border-radius:var(--radius); box-shadow:0 1px 3px rgba(0,30,80,.06); }
 
 /* tables */
-.tbl-wrap { border:1px solid var(--bd); border-radius:var(--radius); overflow:hidden; box-shadow:0 1px 3px rgba(0,40,104,.06); }
+.tbl-wrap { border:0.5px solid var(--bd); border-radius:var(--radius); overflow:hidden; box-shadow:0 1px 3px rgba(0,30,80,.06); }
 table { width:100%; border-collapse:collapse; }
-thead th { padding:10px 12px; text-align:left; font-size:11px; font-family:'Nunito Sans'; font-weight:700; color:var(--navy); text-transform:uppercase; letter-spacing:.8px; background:var(--s2); border-bottom:2px solid var(--bd); cursor:pointer; user-select:none; white-space:nowrap; }
+thead th { padding:10px 12px; text-align:left; font-size:11px; font-family:'Nunito Sans'; font-weight:700; color:var(--navy); text-transform:uppercase; letter-spacing:.8px; background:var(--s2); border-bottom:2px solid var(--bd); cursor:pointer; user-select:none; white-space:nowrap; min-height:44px; }
 thead th:hover, thead th.on { color:var(--gold-t); }
-tbody td { padding:10px 12px; font-size:13px; border-bottom:1px solid var(--bd); font-variant-numeric:tabular-nums; }
+tbody td { padding:10px 12px; font-size:13px; border-bottom:1px solid var(--bd); font-family:'Courier New',monospace; font-variant-numeric:tabular-nums; }
 tbody tr:last-child td { border-bottom:none; }
-tbody tr:hover td { background:var(--s2); cursor:pointer; }
-.mono { font-family:'Nunito Sans'; font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
-.c-g { color:var(--green); } .c-r { color:var(--red); } .c-a { color:var(--gold-t); } .c-b { color:var(--blue); } .c-m { color:var(--muted); }
+.td-name { font-family:'Nunito Sans'; font-weight:600; }
+.mono { font-family:'Courier New',monospace; font-variant-numeric:tabular-nums; }
+.c-g { color:var(--green); } .c-r { color:var(--red); } .c-m { color:var(--muted); }
 .td-r { text-align:right; }
 
-/* badges */
-.badge { display:inline-block; font-size:10px; font-family:'Nunito Sans'; font-weight:700; padding:2px 7px; border-radius:4px; white-space:nowrap; }
-.b-gold   { background:rgba(232,160,32,.15); color:var(--gold-t);  border:1px solid rgba(232,160,32,.4); }
-.b-green  { background:var(--green-d);        color:var(--green);   border:1px solid rgba(26,112,64,.3); }
-.b-red    { background:var(--red-d);           color:var(--red);     border:1px solid rgba(184,48,48,.3); }
-.b-blue   { background:var(--blue-d);          color:var(--blue);    border:1px solid rgba(74,144,212,.35); }
-.b-amber  { background:var(--amber-d);         color:var(--amber);   border:1px solid rgba(184,96,16,.3); }
-.b-muted  { background:var(--s3);              color:var(--muted);   border:1px solid var(--bd); }
-
-/* focal indicator */
-.focal-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--gold); margin-right:7px; flex-shrink:0; }
-.opp-dot   { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--bd2); margin-right:7px; flex-shrink:0; }
-
 /* back button */
-.back-btn { background:var(--s1); border:1px solid var(--bd); border-radius:6px; color:var(--text2); font-family:'Nunito Sans'; font-size:13px; font-weight:600; padding:7px 14px; cursor:pointer; margin-bottom:14px; display:inline-flex; align-items:center; gap:6px; transition:all .15s; box-shadow:0 1px 3px rgba(0,40,104,.06); }
+.back-btn { background:var(--s1); border:0.5px solid var(--bd); border-radius:6px; color:var(--text2); font-family:'Nunito Sans'; font-size:13px; font-weight:600; padding:7px 14px; cursor:pointer; margin-bottom:14px; display:inline-flex; align-items:center; gap:6px; transition:all .15s; box-shadow:0 1px 3px rgba(0,30,80,.06); min-height:44px; }
 .back-btn:hover { border-color:var(--navy); color:var(--navy); }
 
-/* matchup */
-.mu-selectors { display:grid; grid-template-columns:1fr 40px 1fr; gap:12px; align-items:center; margin-bottom:14px; }
-.mu-team-card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:14px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.mu-label { font-size:10px; font-family:'Nunito Sans'; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; margin-bottom:8px; }
-.mu-select { width:100%; background:var(--s1); border:1px solid var(--bd2); border-radius:6px; color:var(--text); font-family:'Nunito Sans'; font-size:14px; padding:9px 11px; outline:none; cursor:pointer; }
-.mu-select:focus { border-color:var(--navy); box-shadow:0 0 0 3px rgba(0,40,104,.12); }
-.vs-text { font-weight:800; font-size:18px; color:var(--muted); text-align:center; }
-.gen-btn { background:var(--navy); color:#fff; border:none; border-radius:8px; font-family:'Nunito Sans'; font-weight:700; font-size:15px; padding:13px 24px; cursor:pointer; width:100%; transition:all .15s; margin-bottom:20px; display:flex; align-items:center; justify-content:center; gap:8px; letter-spacing:.3px; }
-.gen-btn:hover { background:var(--navy2); }
-.gen-btn:disabled { opacity:.4; cursor:not-allowed; }
+/* ─── LEAGUE TAB ─── */
+.scatter-wrap { background:var(--s1); border:0.5px solid var(--bd); border-radius:var(--radius); padding:16px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,30,80,.06); }
+.scatter-legend { display:flex; gap:14px; justify-content:center; margin-top:10px; }
+.scatter-legend-item { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:700; color:var(--text2); }
+.scatter-legend-dot { width:10px; height:10px; border-radius:50%; }
 
-/* H2H bars */
-.h2h-wrap { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:20px 24px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.h2h-header { display:grid; grid-template-columns:1fr 110px 1fr; gap:8px; align-items:center; margin-bottom:16px; padding-bottom:12px; border-bottom:2px solid var(--navy); }
-.h2h-team-name { font-weight:800; font-size:18px; color:var(--navy); letter-spacing:.5px; }
-.h2h-team-name.right { text-align:right; }
-.h2h-row { display:grid; grid-template-columns:1fr 110px 1fr; gap:8px; align-items:center; margin-bottom:10px; }
-.h2h-val { font-family:'Nunito Sans'; font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text2); }
-.h2h-val.right { text-align:right; }
-.h2h-val.win  { color:var(--navy); font-weight:800; }
-.h2h-val.lose { color:var(--muted); }
-.h2h-metric-label { font-size:9px; font-family:'Nunito Sans'; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; text-align:center; white-space:nowrap; }
-.h2h-bar-a { height:6px; border-radius:3px 0 0 3px; }
-.h2h-bar-b { height:6px; border-radius:0 3px 3px 0; }
+.standings-wrap { background:var(--s1); border:0.5px solid var(--bd); border-radius:var(--radius); overflow:hidden; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,30,80,.06); }
+.standings-wrap tbody tr { cursor:pointer; }
+.standings-wrap tbody tr:hover td { background:var(--s2); }
+.standings-rvrh td { font-weight:700; }
+.standings-rvrh { border-left:3px solid var(--navy); }
+.standings-sep td { border-bottom:2px solid var(--bd2) !important; }
+.last5-dots { display:flex; gap:3px; }
+.last5-dot { width:8px; height:8px; border-radius:50%; }
+.last5-w { background:var(--green); }
+.last5-l { background:var(--red); }
 
-/* Keys to the Game */
-.ktg-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
-.ktg-panel { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); overflow:hidden; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.ktg-panel-hdr { padding:13px 16px; border-bottom:2px solid var(--navy); background:var(--navy); display:flex; align-items:center; gap:8px; }
-.ktg-panel-name { font-weight:800; font-size:15px; color:#fff; letter-spacing:.5px; }
-.ktg-panel-badge { font-size:10px; font-weight:700; background:rgba(255,255,255,.15); color:rgba(255,255,255,.85); border-radius:4px; padding:2px 7px; }
-.ktg-section { padding:13px 16px; border-bottom:1px solid var(--bd); }
-.ktg-section:last-child { border-bottom:none; }
-.ktg-section-hdr { display:flex; align-items:center; gap:7px; margin-bottom:10px; }
-.ktg-section-icon { font-size:13px; }
-.ktg-section-label { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:1px; }
-.ktg-section.hit  .ktg-section-label { color:var(--gold-t); }
-.ktg-section.pit  .ktg-section-label { color:var(--blue); }
-.ktg-section.str  .ktg-section-label { color:var(--green); }
-.ktg-section.hit  { background:#FFFBF2; }
-.ktg-section.pit  { background:#F2F6FD; }
-.ktg-section.str  { background:#F2FAF5; }
-.ktg-bullet { font-size:13px; color:var(--text); line-height:1.6; margin-bottom:7px; padding-left:14px; position:relative; font-weight:500; }
-.ktg-bullet:last-child { margin-bottom:0; }
-.ktg-bullet::before { content:'›'; position:absolute; left:0; font-size:15px; line-height:1.4; color:var(--bd2); }
-.ktg-section.hit .ktg-bullet::before { color:var(--gold); }
-.ktg-section.pit .ktg-bullet::before { color:var(--blue); }
-.ktg-section.str .ktg-bullet::before { color:var(--green); }
-.ktg-generating { display:flex; align-items:center; justify-content:center; gap:10px; height:180px; color:var(--muted); font-size:14px; background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); }
-.ktg-placeholder { background:var(--s2); border:1px solid var(--bd); border-radius:var(--radius); height:180px; display:flex; align-items:center; justify-content:center; }
-.ktg-placeholder p { font-size:13px; color:var(--muted); text-align:center; line-height:1.6; }
-/* Key Players */
-.kp-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
-.kp-panel { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); overflow:hidden; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.kp-panel-hdr { padding:10px 14px; background:var(--s2); border-bottom:1px solid var(--bd); font-size:11px; font-weight:800; color:var(--navy); text-transform:uppercase; letter-spacing:.8px; }
-.kp-sub-hdr { padding:8px 14px; background:var(--s3); border-bottom:1px solid var(--bd); font-size:9px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
-.kp-row { display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid var(--bd); }
-.kp-row:last-child { border-bottom:none; }
-.kp-rank { font-size:11px; font-weight:800; color:var(--bd2); width:16px; flex-shrink:0; text-align:center; }
-.kp-name { font-size:13px; font-weight:600; color:var(--navy); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.kp-primary { font-size:13px; font-weight:800; font-variant-numeric:tabular-nums; flex-shrink:0; width:50px; text-align:right; }
-.kp-secondary { font-size:11px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--muted); flex-shrink:0; width:46px; text-align:right; }
-.kp-tertiary { font-size:10px; color:var(--muted); flex-shrink:0; }
-@media(max-width:700px) { .ktg-grid{grid-template-columns:1fr} .kp-grid{grid-template-columns:1fr} .g2{grid-template-columns:1fr} }
+.heatmap-wrap { background:var(--s1); border:0.5px solid var(--bd); border-radius:var(--radius); overflow:hidden; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,30,80,.06); }
+.heatmap-wrap tbody tr { cursor:pointer; }
+.heatmap-wrap tbody tr:hover td { opacity:.85; }
+.heatmap-rvrh { border-left:3px solid var(--navy); }
 
-/* pitcher cards */
-.pitcher-cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px; margin-bottom:16px; }
-.pc { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:14px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.pc-name { font-weight:700; font-size:14px; margin-bottom:3px; color:var(--navy); }
-.pc-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:6px 8px; margin-top:10px; }
-.pc-stat { }
-.pc-stat-val { font-family:'Nunito Sans'; font-size:16px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; }
-.pc-stat-lbl { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; font-weight:700; margin-top:2px; }
+/* ─── TEAMS TAB ─── */
+.team-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:12px; margin-bottom:18px; }
+@media(min-width:800px) { .team-grid { grid-template-columns:repeat(3, 1fr); } }
+@media(min-width:1100px) { .team-grid { grid-template-columns:repeat(4, 1fr); } }
+.team-card { border-radius:var(--radius); border:0.5px solid rgba(0,0,0,.08); padding:16px; cursor:pointer; transition:transform .12s, box-shadow .12s; min-height:44px; }
+.team-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,.12); }
+.team-card-name { font-size:16px; font-weight:800; margin-bottom:6px; }
+.team-card-stats { display:flex; gap:10px; font-size:12px; font-weight:600; margin-bottom:8px; font-family:'Courier New',monospace; font-variant-numeric:tabular-nums; }
+.team-card-last3 { display:flex; gap:4px; }
+.wl-badge { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800; color:#fff; }
+.wl-w { background:var(--green); }
+.wl-l { background:var(--red); }
 
-/* lineup threats */
-.threat-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--bd); }
-.threat-row:last-child { border-bottom:none; }
-.threat-rank { font-weight:800; font-size:16px; color:var(--bd2); width:22px; text-align:center; flex-shrink:0; }
-.threat-name { font-weight:600; flex:1; color:var(--navy); font-size:14px; }
-.threat-ops { font-size:14px; font-weight:800; font-variant-numeric:tabular-nums; margin-right:4px; }
+.limited-acc { border:0.5px solid var(--bd); border-radius:var(--radius); overflow:hidden; margin-bottom:18px; }
+.limited-acc-hdr { padding:12px 16px; background:var(--s2); cursor:pointer; user-select:none; display:flex; align-items:center; justify-content:space-between; min-height:44px; }
+.limited-acc-hdr:hover { background:var(--s3); }
+.limited-acc-title { font-size:12px; font-weight:700; color:var(--muted); }
+.limited-acc-toggle { font-size:12px; color:var(--muted); }
+.limited-acc-body { padding:12px; background:var(--s1); border-top:1px solid var(--bd); }
 
-/* game situations */
-.gsit-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(185px,1fr)); gap:10px; margin-bottom:16px; }
-.gsit-card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:13px 15px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.gsit-type { font-size:10px; font-family:'Nunito Sans'; font-weight:800; text-transform:uppercase; letter-spacing:.8px; margin-bottom:9px; }
-.gsit-card.speed   .gsit-type { color:var(--blue); }
-.gsit-card.power   .gsit-type { color:var(--gold-t); }
-.gsit-card.patience .gsit-type { color:var(--amber); }
-.gsit-card.walk-prone .gsit-type { color:var(--red); }
-.gsit-item { font-size:13px; color:var(--text2); margin-bottom:5px; display:flex; justify-content:space-between; align-items:baseline; }
-.gsit-item .name { font-weight:600; color:var(--text); }
-.gsit-item .val  { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--muted); }
+.briefing-header { margin-bottom:4px; }
+.briefing-name { font-size:22px; font-weight:800; color:var(--navy); }
+.briefing-games { font-size:13px; color:var(--muted); font-weight:600; margin-bottom:14px; }
+.slim-header { position:sticky; top:56px; z-index:50; background:var(--s1); border-bottom:1px solid var(--bd); padding:10px 16px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:13px; font-weight:600; margin:0 -20px; padding-left:20px; padding-right:20px; }
+.slim-stat { font-family:'Courier New',monospace; font-variant-numeric:tabular-nums; color:var(--text2); }
+.slim-sep { color:var(--bd2); }
+.slim-pill { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; color:#fff; }
+.slim-pill-w { background:var(--green); }
+.slim-pill-l { background:var(--red); }
 
-/* league charts — 4-across, above fold */
-.league-charts { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:16px; margin-bottom:22px; }
-.league-charts .stat-card { padding:13px 15px; }
-.lc-row { display:flex; align-items:center; gap:7px; margin-bottom:7px; }
-.lc-row:last-child { margin-bottom:0; }
-.lc-label { width:34px; font-size:10px; font-weight:700; color:var(--text2); flex-shrink:0; letter-spacing:.3px; }
-.lc-track { flex:1; height:8px; background:var(--s3); border-radius:4px; overflow:hidden; }
-.lc-bar { height:100%; border-radius:4px; transition:width .5s cubic-bezier(.4,0,.2,1); }
-.lc-val { width:38px; font-size:12px; font-weight:800; font-variant-numeric:tabular-nums; text-align:right; flex-shrink:0; }
-/* RS/RA split bar */
-.runs-row { margin-bottom:11px; }
-.runs-row:last-child { margin-bottom:0; }
-.runs-hdr { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px; }
-.runs-team { font-size:10px; font-weight:700; color:var(--text2); letter-spacing:.3px; }
-.runs-vals { font-size:10px; font-variant-numeric:tabular-nums; font-weight:600; }
-.runs-bar { height:13px; border-radius:6px; overflow:hidden; display:flex; position:relative; box-shadow:0 1px 4px rgba(0,0,0,.14); }
-.runs-seg-ra { height:100%; flex-shrink:0; }
-.runs-seg-rs { height:100%; flex:1; }
-.runs-pivot { position:absolute; left:50%; top:1px; bottom:1px; width:2px; background:rgba(255,255,255,.55); border-radius:1px; transform:translateX(-50%); pointer-events:none; }
-.runs-legend { display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:8px; border-top:1px solid var(--bd); }
-.runs-legend-item { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); display:flex; align-items:center; gap:4px; }
-.runs-legend-dot { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
-@media(max-width:980px) { .league-charts{grid-template-columns:1fr 1fr} }
-@media(max-width:540px)  { .league-charts{grid-template-columns:1fr} }
+.drawer { border:0.5px solid var(--bd); border-radius:var(--radius); margin-bottom:12px; overflow:hidden; box-shadow:0 1px 3px rgba(0,30,80,.06); }
+.drawer-hdr { padding:13px 16px; cursor:pointer; user-select:none; display:flex; align-items:center; justify-content:space-between; background:var(--s2); min-height:44px; transition:background .12s; }
+.drawer-hdr:hover { background:var(--s3); }
+.drawer-label { font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:1px; }
+.drawer-toggle { font-size:14px; color:var(--muted); transition:transform .2s; }
+.drawer-toggle.open { transform:rotate(180deg); }
+.drawer-body { border-top:1px solid var(--bd); background:var(--s1); }
+.drawer-body.blue   { border-left:3px solid var(--blue); }
+.drawer-body.amber  { border-left:3px solid var(--amber); }
+.drawer-body.purple { border-left:3px solid var(--purple); }
 
-/* leaders accordion */
-.leaders-acc { border:1px solid var(--bd); border-radius:var(--radius); margin-bottom:8px; overflow:hidden; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.leaders-acc-hdr { display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:var(--s2); cursor:pointer; user-select:none; }
-.leaders-acc-hdr:hover { background:var(--s3); }
-.leaders-acc-title { font-size:11px; font-family:'Nunito Sans'; font-weight:700; color:var(--navy); text-transform:uppercase; letter-spacing:.7px; }
-.leaders-acc-toggle { font-size:11px; color:var(--muted); }
-.leaders-acc-body { background:var(--s1); border-top:1px solid var(--bd); }
-.leaders-rank { font-size:13px; font-weight:800; color:var(--bd2); width:20px; text-align:center; flex-shrink:0; }
-.leaders-row { display:flex; align-items:center; gap:10px; padding:9px 16px; border-bottom:1px solid var(--bd); }
-.leaders-row:last-child { border-bottom:none; }
-.leaders-name { font-weight:600; font-size:13px; color:var(--navy); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.leaders-team { font-size:10px; font-weight:700; color:var(--muted); background:var(--s2); border:1px solid var(--bd); border-radius:4px; padding:1px 6px; flex-shrink:0; }
-.leaders-stat { font-size:14px; font-weight:800; font-variant-numeric:tabular-nums; flex-shrink:0; width:52px; text-align:right; }
-.leaders-stat2 { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--muted); flex-shrink:0; width:52px; text-align:right; }
-.leaders-sub { font-size:10px; color:var(--muted); flex-shrink:0; }
+.pitcher-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:10px; padding:14px; }
+.pc { background:var(--s1); border:0.5px solid var(--bd); border-radius:var(--radius); padding:14px; }
+.pc-name { font-weight:700; font-size:14px; color:var(--navy); cursor:pointer; margin-bottom:2px; }
+.pc-name:hover { text-decoration:underline; }
+.pc-role { font-size:11px; color:var(--muted); font-weight:600; margin-bottom:8px; }
+.pc-stats { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+.pc-stat-val { font-family:'Courier New',monospace; font-size:15px; font-weight:800; font-variant-numeric:tabular-nums; }
+.pc-stat-lbl { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; font-weight:700; margin-top:1px; }
 
-/* opponent intel */
-.opp-intel { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:14px; margin-top:8px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.opp-intel-header { display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
-.opp-intel-title { font-size:11px; font-family:'Nunito Sans'; font-weight:700; color:var(--navy); text-transform:uppercase; letter-spacing:.8px; }
-.opp-intel-toggle { font-size:11px; color:var(--muted); margin-left:auto; }
-.opp-grid { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-.opp-chip { background:var(--s2); border:1px solid var(--bd); border-radius:6px; padding:7px 12px; font-size:12px; cursor:pointer; transition:all .15s; display:flex; align-items:center; gap:0; }
-.opp-chip:hover { border-color:var(--navy); background:var(--s3); }
-.opp-chip-name { font-weight:700; color:var(--text); }
-.opp-chip-g { font-size:11px; font-weight:700; color:var(--navy); background:var(--blue-d); border-radius:3px; padding:1px 5px; margin-left:7px; font-variant-numeric:tabular-nums; }
-.opp-chip-era { font-size:11px; font-weight:600; color:var(--muted); margin-left:6px; font-variant-numeric:tabular-nums; }
+.outing-strip-wrap { display:flex; align-items:center; gap:6px; }
+.outing-strip { display:flex; gap:3px; overflow-x:auto; flex:1; padding:4px 0; }
+.outing-block { height:22px; min-width:22px; border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; color:#fff; flex-shrink:0; padding:0 4px; }
+.outing-0r { background:var(--green); }
+.outing-1r { background:#B87010; }
+.outing-3r { background:var(--red); }
+.outing-dir { font-size:10px; color:var(--muted); font-weight:700; white-space:nowrap; flex-shrink:0; }
 
-/* chat */
-.chat-wrap { display:flex; flex-direction:column; height:calc(100vh - 180px); min-height:400px; border:1px solid var(--bd); border-radius:var(--radius); overflow:hidden; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.chat-msgs { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; background:var(--bg); }
-.chat-empty { margin:auto; text-align:center; }
-.chat-empty h3 { font-weight:800; font-size:20px; color:var(--navy); margin-bottom:6px; }
-.chat-empty p { font-size:13px; color:var(--muted); }
-.suggestions { display:flex; flex-wrap:wrap; gap:7px; justify-content:center; margin-top:14px; max-width:520px; }
-.sug { background:var(--s1); border:1px solid var(--bd); border-radius:6px; padding:6px 12px; cursor:pointer; font-size:12px; font-weight:600; color:var(--text2); font-family:'Nunito Sans'; transition:all .15s; text-align:left; }
-.sug:hover { border-color:var(--navy); color:var(--navy); }
-.msg { display:flex; gap:10px; max-width:88%; }
-.msg.user { align-self:flex-end; flex-direction:row-reverse; }
-.msg-av { width:28px; height:28px; border-radius:50%; background:var(--s2); border:1px solid var(--bd); display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:var(--muted); flex-shrink:0; }
-.msg.ai .msg-av { background:var(--navy); color:#fff; border-color:var(--navy); }
-.msg-bbl { padding:10px 14px; border-radius:10px; font-size:14px; line-height:1.65; white-space:pre-wrap; }
-.msg.user .msg-bbl { background:var(--navy); color:#fff; }
-.msg.ai   .msg-bbl { background:var(--s1); color:var(--text); border:1px solid var(--bd); }
-.chat-bar { display:flex; gap:8px; padding:12px 14px; border-top:1px solid var(--bd); background:var(--s1); }
-.chat-inp { flex:1; background:var(--s2); border:1px solid var(--bd2); border-radius:6px; color:var(--text); font-family:'Nunito Sans'; font-size:14px; padding:9px 12px; outline:none; }
-.chat-inp:focus { border-color:var(--navy); box-shadow:0 0 0 3px rgba(0,40,104,.1); }
-.chat-inp::placeholder { color:var(--muted); }
-.send-btn { background:var(--navy); color:#fff; border:none; border-radius:6px; font-family:'Nunito Sans'; font-weight:700; font-size:14px; padding:9px 18px; cursor:pointer; transition:all .15s; }
-.send-btn:hover { background:var(--navy2); }
-.send-btn:disabled { opacity:.4; cursor:not-allowed; }
-.dots { display:flex; gap:4px; padding:3px 0; }
-.dot { width:6px; height:6px; border-radius:50%; background:var(--muted); animation:bounce 1.2s infinite; }
-.dot:nth-child(2){animation-delay:.2s} .dot:nth-child(3){animation-delay:.4s}
+.lineup-table { padding:0; }
+.lineup-table table { font-size:13px; }
+.lineup-table tbody td { padding:9px 10px; }
+.lineup-table .td-name { cursor:pointer; color:var(--navy); font-weight:600; }
+.lineup-table .td-name:hover { text-decoration:underline; }
+
+.discipline-section { padding:14px 16px; border-bottom:1px solid var(--bd); }
+.discipline-section:last-child { border-bottom:none; }
+.discipline-title { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:1px; color:var(--purple); margin-bottom:10px; }
+.sb-bar-wrap { display:flex; align-items:center; gap:10px; margin-top:6px; }
+.sb-bar { flex:1; height:10px; background:var(--s3); border-radius:5px; overflow:hidden; }
+.sb-bar-fill { height:100%; background:var(--green); border-radius:5px; }
+.split-bar-wrap { display:flex; align-items:center; gap:6px; margin-top:6px; }
+.split-bar { flex:1; height:10px; border-radius:5px; overflow:hidden; display:flex; }
+.split-sac { height:100%; background:var(--blue); }
+.split-gdp { height:100%; background:var(--red); }
+
+/* ─── PLAYER INTELLIGENCE (State 3) ─── */
+.pi-header { margin-bottom:14px; }
+.pi-name { font-size:20px; font-weight:800; color:var(--navy); }
+.pi-team { font-size:13px; color:var(--muted); font-weight:600; }
+.pi-role { font-size:12px; font-weight:700; color:var(--blue); margin-top:2px; }
+.pi-summary { display:flex; gap:16px; flex-wrap:wrap; padding:12px 16px; background:var(--s2); border:0.5px solid var(--bd); border-radius:var(--radius); margin-bottom:14px; }
+.pi-sum-item { text-align:center; }
+.pi-sum-val { font-family:'Courier New',monospace; font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--navy); }
+.pi-sum-lbl { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; font-weight:700; }
+.pi-filters { display:flex; gap:6px; margin-bottom:14px; }
+.pi-filter { font-family:'Nunito Sans'; font-size:12px; font-weight:700; padding:6px 14px; border-radius:6px; border:1px solid var(--bd); background:var(--s1); color:var(--text2); cursor:pointer; transition:all .12s; min-height:44px; display:flex; align-items:center; }
+.pi-filter:hover { border-color:var(--navy); }
+.pi-filter.on { background:var(--navy); color:#fff; border-color:var(--navy); }
+.pi-table { margin-top:0; }
+.pi-table tbody tr:hover td { background:var(--s2); cursor:default; }
+
+/* ─── ASK TAB ─── */
+.ask-wrap { display:flex; flex-direction:column; height:calc(100vh - 180px); min-height:400px;
+  border:1px solid var(--bd); border-radius:var(--radius); overflow:hidden;
+  box-shadow:0 1px 3px rgba(0,30,80,.06); }
+.ask-msgs { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column;
+  gap:12px; background:var(--bg); }
+.ask-empty { margin:auto; text-align:center; }
+.ask-empty h3 { font-weight:800; font-size:20px; color:var(--navy); margin-bottom:6px; }
+.ask-empty p  { font-size:13px; color:var(--muted); }
+.ask-sugs { display:flex; flex-wrap:wrap; gap:7px; justify-content:center;
+  margin-top:14px; max-width:520px; }
+.ask-sug { background:var(--s1); border:1px solid var(--bd); border-radius:6px;
+  padding:6px 12px; cursor:pointer; font-size:12px; font-weight:600;
+  color:var(--text2); font-family:'Nunito Sans'; transition:all .15s; text-align:left; min-height:44px; display:flex; align-items:center; }
+.ask-sug:hover { border-color:var(--navy); color:var(--navy); }
+.ask-msg { display:flex; gap:10px; max-width:88%; }
+.ask-msg.user { align-self:flex-end; flex-direction:row-reverse; }
+.ask-av { width:28px; height:28px; border-radius:50%; background:var(--s2);
+  border:1px solid var(--bd); display:flex; align-items:center; justify-content:center;
+  font-size:10px; font-weight:700; color:var(--muted); flex-shrink:0; }
+.ask-msg.ai .ask-av { background:var(--navy); color:#fff; border-color:var(--navy); }
+.ask-bbl { padding:10px 14px; border-radius:10px; font-size:14px;
+  line-height:1.65; white-space:pre-wrap; }
+.ask-msg.user .ask-bbl { background:var(--navy); color:#fff; }
+.ask-msg.ai   .ask-bbl { background:var(--s1); color:var(--text); border:1px solid var(--bd); }
+.ask-bar { display:flex; gap:8px; padding:12px 14px;
+  border-top:1px solid var(--bd); background:var(--s1); }
+.ask-inp { flex:1; background:var(--s2); border:1px solid var(--bd2); border-radius:6px;
+  color:var(--text); font-family:'Nunito Sans'; font-size:14px; padding:9px 12px; outline:none; }
+.ask-inp:focus { border-color:var(--navy); box-shadow:0 0 0 3px rgba(0,30,80,.10); }
+.ask-inp::placeholder { color:var(--muted); }
+.ask-send { background:var(--navy); color:#fff; border:none; border-radius:6px;
+  font-family:'Nunito Sans'; font-weight:700; font-size:14px;
+  padding:9px 18px; cursor:pointer; transition:all .15s; }
+.ask-send:hover { opacity:.88; }
+.ask-send:disabled { opacity:.4; cursor:not-allowed; }
+.ask-dots { display:flex; gap:4px; padding:3px 0; }
+.ask-dot  { width:6px; height:6px; border-radius:50%; background:var(--muted);
+  animation:bounce 1.2s infinite; }
+.ask-dot:nth-child(2){animation-delay:.2s}
+.ask-dot:nth-child(3){animation-delay:.4s}
+
 @keyframes bounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-6px)}}
-
-/* spinner */
 .spinner { width:14px; height:14px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; flex-shrink:0; }
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* section divider */
-.sec-divider { border:none; border-top:1px solid var(--bd); margin:22px 0; }
-
-/* playoff threat matrix */
-.ptm-wrap { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); overflow:hidden; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.ptm-row { display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--bd); cursor:pointer; transition:background .1s; }
-.ptm-row:last-child { border-bottom:none; }
-.ptm-row:hover { background:var(--s2); }
-.ptm-team { font-weight:700; font-size:13px; color:var(--navy); flex:1; min-width:0; }
-.ptm-tier { font-size:10px; font-weight:800; padding:3px 8px; border-radius:4px; white-space:nowrap; letter-spacing:.5px; }
-.ptm-score { font-size:12px; font-weight:800; font-variant-numeric:tabular-nums; width:32px; text-align:right; color:var(--text2); }
-.ptm-stat { font-size:11px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--muted); white-space:nowrap; }
-.ptm-bar { width:60px; height:6px; border-radius:3px; background:var(--s3); overflow:hidden; flex-shrink:0; }
-.ptm-bar-fill { height:100%; border-radius:3px; transition:width .4s; }
-
-/* tier badges inline */
-.tier-badge { display:inline-block; font-size:9px; font-weight:800; padding:2px 6px; border-radius:3px; letter-spacing:.4px; white-space:nowrap; margin-left:6px; vertical-align:middle; }
-.tier-ace     { background:rgba(184,48,48,.12); color:var(--red); border:1px solid rgba(184,48,48,.3); }
-.tier-quality { background:rgba(232,160,32,.12); color:var(--gold-t); border:1px solid rgba(232,160,32,.3); }
-.tier-average { background:rgba(74,144,212,.1); color:var(--blue); border:1px solid rgba(74,144,212,.3); }
-.tier-below   { background:var(--s3); color:var(--muted); border:1px solid var(--bd); }
-.tier-limited { background:var(--s3); color:var(--muted); border:1px solid var(--bd); font-style:italic; }
-.tier-elite   { background:rgba(184,48,48,.12); color:var(--red); border:1px solid rgba(184,48,48,.3); }
-.tier-high    { background:rgba(232,160,32,.12); color:var(--gold-t); border:1px solid rgba(232,160,32,.3); }
-.tier-moderate{ background:rgba(74,144,212,.1); color:var(--blue); border:1px solid rgba(74,144,212,.3); }
-.tier-low     { background:var(--s3); color:var(--muted); border:1px solid var(--bd); }
-
-/* defensive targets */
-.def-targets { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:8px; }
-.def-card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:10px 14px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.def-name { font-weight:700; font-size:13px; color:var(--navy); }
-.def-stat { font-size:22px; font-weight:800; color:var(--red); line-height:1; margin:4px 0 2px; }
-.def-sub { font-size:11px; color:var(--muted); }
-
-/* matchup exploits */
-.exploit-wrap { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:16px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.exploit-item { display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:1px solid var(--s3); }
-.exploit-item:last-child { border-bottom:none; }
-.exploit-cat { font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; padding:3px 7px; border-radius:4px; white-space:nowrap; flex-shrink:0; margin-top:1px; }
-.exploit-cat.offense    { background:rgba(26,112,64,.1); color:var(--green); }
-.exploit-cat.pitching   { background:rgba(74,144,212,.1); color:var(--blue); }
-.exploit-cat.baserunning{ background:rgba(232,160,32,.12); color:var(--gold-t); }
-.exploit-cat.advantage  { background:rgba(0,40,104,.08); color:var(--navy); }
-.exploit-text { font-size:13px; color:var(--text); line-height:1.5; font-weight:500; }
-
-/* opponent rotation */
-.rot-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; margin-bottom:14px; }
-.rot-card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:12px 14px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.rot-name { font-weight:700; font-size:14px; color:var(--navy); margin-bottom:2px; }
-.rot-detail { font-size:11px; color:var(--muted); line-height:1.7; }
-
-/* Teams tab — team cards list */
-.team-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; }
-.team-card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:18px; cursor:pointer; transition:all .15s; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.team-card:hover { border-color:var(--navy); box-shadow:0 2px 8px rgba(0,40,104,.12); }
-.team-card-name { font-weight:800; font-size:18px; color:var(--navy); letter-spacing:.5px; margin-bottom:8px; }
-.team-card-record { font-size:13px; font-weight:700; color:var(--text2); margin-bottom:10px; }
-.team-card-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
-.team-card-stat { text-align:center; }
-.team-card-stat-val { font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--navy); }
-.team-card-stat-lbl { font-size:9px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
-
-/* Recent form strip */
-.form-strip { display:flex; gap:8px; overflow-x:auto; padding:4px 0 8px; margin-bottom:18px; }
-.form-card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:10px 14px; min-width:110px; flex-shrink:0; box-shadow:0 1px 3px rgba(0,40,104,.06); text-align:center; }
-.form-card.win  { border-left:3px solid var(--green); }
-.form-card.loss { border-left:3px solid var(--red); }
-.form-card.tie  { border-left:3px solid var(--muted); }
-.form-card-date { font-size:10px; color:var(--muted); font-weight:600; }
-.form-card-opp  { font-size:13px; font-weight:700; color:var(--navy); margin:3px 0; }
-.form-card-score{ font-size:14px; font-weight:800; font-variant-numeric:tabular-nums; }
-
-/* Splits panel */
-.splits-panel { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:18px; }
-@media(max-width:700px) { .splits-panel{grid-template-columns:1fr} }
-.split-card { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:16px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.split-card-title { font-size:10px; font-weight:800; color:var(--navy); text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; padding-bottom:8px; border-bottom:2px solid var(--navy); }
-.split-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--s3); font-size:13px; }
-.split-row:last-child { border-bottom:none; }
-.split-label { font-weight:600; color:var(--text); }
-.split-val { font-weight:700; font-variant-numeric:tabular-nums; color:var(--text2); }
-
-/* Lineup card */
-.lineup-wrap { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); overflow:hidden; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.lineup-row { display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--bd); cursor:pointer; transition:background .1s; }
-.lineup-row:last-child { border-bottom:none; }
-.lineup-row:hover { background:var(--s2); }
-.lineup-slot { font-size:16px; font-weight:800; color:var(--bd2); width:22px; text-align:center; flex-shrink:0; }
-.lineup-name { font-weight:600; font-size:14px; color:var(--navy); flex:1; }
-.lineup-stat { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text2); width:50px; text-align:right; flex-shrink:0; }
-
-/* Player profile header */
-.player-header { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:20px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.player-header-name { font-weight:800; font-size:22px; color:var(--navy); letter-spacing:.5px; }
-.player-header-sub { font-size:13px; color:var(--muted); margin-top:4px; }
-.player-header-stats { display:flex; gap:20px; margin-top:12px; flex-wrap:wrap; }
-.player-header-stat { text-align:center; }
-.player-header-stat-val { font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--navy); }
-.player-header-stat-lbl { font-size:9px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
-
-/* Recent form columns */
-.form-cols { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:18px; }
-@media(max-width:600px) { .form-cols{grid-template-columns:1fr} }
-.form-col { background:var(--s1); border:1px solid var(--bd); border-radius:var(--radius); padding:14px; text-align:center; box-shadow:0 1px 3px rgba(0,40,104,.06); }
-.form-col-title { font-size:10px; font-weight:800; color:var(--navy); text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; padding-bottom:8px; border-bottom:2px solid var(--navy); }
-.form-col-row { display:flex; justify-content:space-between; padding:4px 0; font-size:13px; }
-.form-col-label { color:var(--muted); font-weight:600; }
-.form-col-val { font-weight:800; font-variant-numeric:tabular-nums; }
-
-/* Score breakdown bar */
-.score-breakdown { margin-top:12px; }
-.score-bar-wrap { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
-.score-bar-label { font-size:10px; font-weight:700; color:var(--muted); width:55px; flex-shrink:0; text-transform:uppercase; letter-spacing:.5px; }
-.score-bar-track { flex:1; height:10px; background:var(--s3); border-radius:5px; overflow:hidden; }
-.score-bar-fill { height:100%; border-radius:5px; transition:width .4s; }
-.score-bar-val { font-size:11px; font-weight:800; font-variant-numeric:tabular-nums; width:36px; text-align:right; flex-shrink:0; }
-
-/* Two-way badge */
-.two-way-badge { display:inline-block; font-size:9px; font-weight:800; padding:2px 7px; border-radius:4px; background:rgba(26,112,64,.1); color:var(--green); border:1px solid rgba(26,112,64,.3); letter-spacing:.4px; margin-left:6px; vertical-align:middle; }
-
-/* Role badge */
-.role-badge { display:inline-block; font-size:9px; font-weight:700; padding:2px 6px; border-radius:3px; letter-spacing:.3px; white-space:nowrap; }
-.role-starter  { background:rgba(0,40,104,.08); color:var(--navy); border:1px solid rgba(0,40,104,.2); }
-.role-reliever { background:rgba(74,144,212,.1); color:var(--blue); border:1px solid rgba(74,144,212,.3); }
-.role-closer   { background:rgba(184,96,16,.1); color:var(--amber); border:1px solid rgba(184,96,16,.3); }
-
-/* Hit type mini bar */
-.hit-type-bar { display:flex; height:14px; border-radius:7px; overflow:hidden; margin-top:6px; }
-.hit-type-seg { height:100%; display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:800; color:#fff; min-width:0; }
-.hit-type-legend { display:flex; gap:12px; margin-top:4px; }
-.hit-type-legend-item { font-size:10px; color:var(--muted); display:flex; align-items:center; gap:3px; }
-.hit-type-legend-dot { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
-
-/* Player list */
-.player-list-row { display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--bd); cursor:pointer; transition:background .1s; }
-.player-list-row:last-child { border-bottom:none; }
-.player-list-row:hover { background:var(--s2); }
-.player-list-name { font-weight:600; font-size:14px; color:var(--navy); flex:1; min-width:0; }
-.player-list-stat { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text2); width:50px; text-align:right; flex-shrink:0; }
-
-/* Counting stats grid */
-.counting-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(70px,1fr)); gap:8px; margin-bottom:14px; }
-.counting-item { background:var(--s2); border-radius:6px; padding:8px; text-align:center; }
-.counting-val { font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--navy); }
-.counting-lbl { font-size:9px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-top:2px; }
-
-/* Muted row for low-PA players */
-.muted-row td { opacity:.55; }
+@media(max-width:700px) {
+  .main { padding:12px; }
+  .topbar { padding:0 12px; }
+  .tabs { padding:0 12px; }
+  .slim-header { margin:0 -12px; padding-left:12px; padding-right:12px; }
+}
 `;
 
-// ─── useSort ──────────────────────────────────────────────────────────────────
+// ─── SORT HOOK ───────────────────────────────────────────────────────────────
 function useSort(data, def, defDir = "desc") {
   const [col, setCol] = useState(def);
   const [dir, setDir] = useState(defDir);
-  const sorted = useMemo(() => [...data].sort((a, b) => {
-    const va = a[col], vb = b[col];
-    const na = parseFloat(va), nb = parseFloat(vb);
-    const cmp = !isNaN(na) && !isNaN(nb) ? na - nb : String(va ?? "").localeCompare(String(vb ?? ""));
-    return dir === "asc" ? cmp : -cmp;
-  }), [data, col, dir]);
   const toggle = c => { if (c === col) setDir(d => d === "asc" ? "desc" : "asc"); else { setCol(c); setDir("desc"); } };
+  const sorted = useMemo(() => {
+    if (!data) return [];
+    return [...data].sort((a, b) => {
+      let va = a[col], vb = b[col];
+      if (typeof va === "string") return dir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+      va = num(va); vb = num(vb);
+      return dir === "asc" ? va - vb : vb - va;
+    });
+  }, [data, col, dir]);
   return { sorted, col, dir, toggle };
 }
+
 function Th({ c, label, s, d, fn, left }) {
-  return <th className={c === s ? "on" : ""} onClick={() => fn(c)} style={{ textAlign: left ? "left" : "right" }}>{label}{c === s ? (d === "asc" ? " ↑" : " ↓") : ""}</th>;
+  const arrow = s === c ? (d === "asc" ? " ↑" : " ↓") : "";
+  return <th className={s === c ? "on" : ""} style={left ? {} : { textAlign: "right" }} onClick={() => fn(c)}>{label}{arrow}</th>;
 }
 
-// ─── H2H BAR ROW ─────────────────────────────────────────────────────────────
-function H2HRow({ label, a: aVal, b: bVal, fmt, lowerBetter }) {
-  const av = parseFloat(aVal), bv = parseFloat(bVal);
-  const aOk = Number.isFinite(av);
-  const bOk = Number.isFinite(bv);
-  const aWins = aOk && bOk && (lowerBetter ? av < bv : av > bv);
-  const bWins = aOk && bOk && (lowerBetter ? bv < av : bv > av);
-  const total = av + bv;
-  const aShare = (aOk && bOk) ? (lowerBetter ? bv / total : av / total) : 0.5;
-  const bShare = (aOk && bOk) ? (lowerBetter ? av / total : bv / total) : 0.5;
-  const MAX = 100;
-  const aDisplay = aOk ? fmt(aVal) : "—";
-  const bDisplay = bOk ? fmt(bVal) : "—";
-  return (
-    <div className="h2h-row">
-      <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
-        <span className={`h2h-val right ${aWins ? "win" : bWins ? "lose" : ""}`}>{aDisplay}</span>
-        <div className="h2h-bar-a" style={{ width: Math.round(aShare * MAX), background: aWins ? "var(--green)" : "var(--bd2)" }} />
-      </div>
-      <div className="h2h-metric-label">{label}</div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div className="h2h-bar-b" style={{ width: Math.round(bShare * MAX), background: bWins ? "var(--green)" : "var(--bd2)" }} />
-        <span className={`h2h-val ${bWins ? "win" : aWins ? "lose" : ""}`}>{bDisplay}</span>
-      </div>
-    </div>
-  );
-}
+// ─── LEAGUE TAB ─────────────────────────────────────────────────────────────
 
-// ─── LEAGUE CHART HELPERS ─────────────────────────────────────────────────────
-function LeagueBarChart({ title, rows }) {
-  const vals = rows.map(r => r.value).filter(v => isFinite(v));
-  const max = vals.length ? Math.max(...vals) : 1;
-  const min = vals.length ? Math.min(...vals) : 0;
-  const range = max - min || 1;
+function LeagueScatterPlot({ data, teams, onTeamClick }) {
+  const teamData = useMemo(() => {
+    return teams.all.map(id => {
+      const s = teamSummary(data, id);
+      const pt = playoffThreat(data, id);
+      const rec = teamRecord(data, id);
+      return {
+        id, ops: s.teamOBP + s.teamSLG, era: s.ERA,
+        score: pt ? pt.score : 0, W: rec.W, L: rec.L,
+      };
+    }).filter(t => t.ops > 0 || t.era > 0);
+  }, [data, teams]);
+
+  if (teamData.length === 0) return null;
+
+  const pad = 0.03;
+  const opsVals = teamData.map(t => t.ops);
+  const eraVals = teamData.map(t => t.era);
+  const opsMin = Math.min(...opsVals) - pad, opsMax = Math.max(...opsVals) + pad;
+  const eraMin = Math.min(...eraVals) - 0.5, eraMax = Math.max(...eraVals) + 0.5;
+
+  const W = 600, H = 400, mx = 55, my = 40, mr = 20, mb = 45;
+  const pw = W - mx - mr, ph = H - my - mb;
+
+  const scaleX = v => mx + ((v - opsMin) / (opsMax - opsMin)) * pw;
+  const scaleY = v => my + ((v - eraMin) / (eraMax - eraMin)) * ph;
+
+  const midX = (opsMin + opsMax) / 2;
+  const midY = (eraMin + eraMax) / 2;
+
+  const xStep = (opsMax - opsMin) / 5;
+  const xTicks = Array.from({ length: 6 }, (_, i) => opsMin + i * xStep);
+  const yStep = (eraMax - eraMin) / 5;
+  const yTicks = Array.from({ length: 6 }, (_, i) => eraMin + i * yStep);
+
   return (
-    <div className="stat-card">
-      <div className="stat-card-label">{title}</div>
-      <div style={{ marginTop: 11 }}>
-        {rows.map(r => {
-          const barPct = Math.max(7, Math.round(((r.lowerBetter ? max - r.value : r.value - min) / range) * 100));
+    <div className="scatter-wrap">
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", maxHeight: 420 }}>
+        {/* Zone backgrounds */}
+        <rect x={scaleX(midX)} y={my} width={scaleX(opsMax) - scaleX(midX)} height={scaleY(midY) - my}
+          fill="rgba(59,109,17,0.06)" rx="4" />
+        <rect x={mx} y={my} width={scaleX(midX) - mx} height={scaleY(midY) - my}
+          fill="rgba(26,95,168,0.04)" rx="4" />
+        <rect x={scaleX(midX)} y={scaleY(midY)} width={scaleX(opsMax) - scaleX(midX)} height={scaleY(eraMax) - scaleY(midY)}
+          fill="rgba(139,80,16,0.04)" rx="4" />
+
+        {/* Axes */}
+        <line x1={mx} y1={H - mb} x2={W - mr} y2={H - mb} stroke="var(--bd)" strokeWidth="1" />
+        <line x1={mx} y1={my} x2={mx} y2={H - mb} stroke="var(--bd)" strokeWidth="1" />
+
+        {/* X-axis ticks */}
+        {xTicks.map((v, i) => (
+          <g key={`xt${i}`}>
+            <line x1={scaleX(v)} y1={H - mb} x2={scaleX(v)} y2={H - mb + 4} stroke="var(--bd2)" strokeWidth="1" />
+            <text x={scaleX(v)} y={H - mb + 18} textAnchor="middle" fontSize="10" fill="var(--muted)" fontFamily="'Courier New',monospace">{v.toFixed(3)}</text>
+          </g>
+        ))}
+        <text x={mx + pw / 2} y={H - 4} textAnchor="middle" fontSize="11" fill="var(--text2)" fontWeight="700" fontFamily="'Nunito Sans'">OPS</text>
+
+        {/* Y-axis ticks */}
+        {yTicks.map((v, i) => (
+          <g key={`yt${i}`}>
+            <line x1={mx - 4} y1={scaleY(v)} x2={mx} y2={scaleY(v)} stroke="var(--bd2)" strokeWidth="1" />
+            <text x={mx - 8} y={scaleY(v) + 3} textAnchor="end" fontSize="10" fill="var(--muted)" fontFamily="'Courier New',monospace">{v.toFixed(1)}</text>
+          </g>
+        ))}
+        <text x={14} y={my + ph / 2} textAnchor="middle" fontSize="11" fill="var(--text2)" fontWeight="700" fontFamily="'Nunito Sans'" transform={`rotate(-90, 14, ${my + ph / 2})`}>ERA</text>
+
+        {/* Dots */}
+        {teamData.map(t => {
+          const cx = scaleX(t.ops), cy = scaleY(t.era);
+          const isRVRH = t.id === "RVRH";
+          const tier = threatTierUI(t.score);
+          const fill = isRVRH ? "#001E50" : tier.bg;
           return (
-            <div key={r.label} className="lc-row">
-              <div className="lc-label">{r.label}</div>
-              <div className="lc-track">
-                <div className="lc-bar" style={{ width: `${barPct}%`, background: r.gradient }} />
-              </div>
-              <div className="lc-val" style={{ color: r.valColor }}>{r.display}</div>
-            </div>
+            <g key={t.id} onClick={() => onTeamClick(t.id)} style={{ cursor: "pointer" }}>
+              <circle cx={cx} cy={cy} r={10} fill={fill}
+                stroke={isRVRH ? "#D4900A" : "none"} strokeWidth={isRVRH ? 2.5 : 0}
+                opacity={0.92} />
+              {!isRVRH && (
+                <text x={cx + 14} y={cy + 4} fontSize="10" fill="var(--text2)" fontWeight="600" fontFamily="'Nunito Sans'">{t.id}</text>
+              )}
+              {isRVRH && (
+                <>
+                  <line x1={cx + 12} y1={cy} x2={cx + 22} y2={cy - 14} stroke="var(--bd2)" strokeWidth="1" />
+                  <text x={cx + 24} y={cy - 18} fontSize="11" fill="var(--navy)" fontWeight="800" fontFamily="'Nunito Sans'">River Hill</text>
+                  <text x={cx + 24} y={cy - 6} fontSize="10" fill="var(--muted)" fontWeight="600" fontFamily="'Courier New',monospace">{t.W}-{t.L}</text>
+                </>
+              )}
+            </g>
           );
         })}
+      </svg>
+      <div className="scatter-legend">
+        <div className="scatter-legend-item"><div className="scatter-legend-dot" style={{ background: "#B83030" }} /> THREAT</div>
+        <div className="scatter-legend-item"><div className="scatter-legend-dot" style={{ background: "#B87010" }} /> MID</div>
+        <div className="scatter-legend-item"><div className="scatter-legend-dot" style={{ background: "#DDDAD2" }} /> WEAK</div>
       </div>
     </div>
   );
 }
 
-function RunsChart({ title, teams }) {
-  // Sort best run differential first
-  const sorted = [...teams].sort((a, b) => (b.RpG - b.RApG) - (a.RpG - a.RApG));
-  const GRAD_RA  = "linear-gradient(90deg,#9B2020,#D94040)";
-  const GRAD_WIN = "linear-gradient(90deg,#1A6035,#2DB860)";
-  const GRAD_LOS = "linear-gradient(90deg,#002060,#2A52A8)";
-  return (
-    <div className="stat-card">
-      <div className="stat-card-label">{title}</div>
-      <div style={{ marginTop: 11 }}>
-        {sorted.map(t => {
-          const total  = t.RpG + t.RApG;
-          const raPct  = total > 0 ? Math.round((t.RApG / total) * 100) : 50;
-          const rsWins = t.RpG >= t.RApG;
-          const diff   = t.RpG - t.RApG;
-          return (
-            <div key={t.teamId} className="runs-row">
-              <div className="runs-hdr">
-                <span className="runs-team">{t.teamId}</span>
-                <span className="runs-vals">
-                  <span style={{ color: "var(--red)" }}>{fix1(t.RApG)}</span>
-                  <span style={{ color: "var(--muted)" }}> vs </span>
-                  <span style={{ color: rsWins ? "var(--green)" : "var(--navy)", fontWeight: 800 }}>{fix1(t.RpG)}</span>
-                  <span style={{ color: diff >= 0 ? "var(--green)" : "var(--red)", marginLeft: 5, fontSize: 9, fontWeight: 700 }}>
-                    ({diff >= 0 ? "+" : ""}{fix1(diff)})
-                  </span>
-                </span>
-              </div>
-              <div className="runs-bar">
-                <div className="runs-seg-ra" style={{ width: `${raPct}%`, background: GRAD_RA }} />
-                <div className="runs-seg-rs"  style={{ background: rsWins ? GRAD_WIN : GRAD_LOS }} />
-                <div className="runs-pivot" />
-              </div>
-            </div>
-          );
-        })}
-        <div className="runs-legend">
-          <div className="runs-legend-item">
-            <div className="runs-legend-dot" style={{ background: GRAD_RA }} />
-            <span>Runs Allowed</span>
-          </div>
-          <div className="runs-legend-item" style={{ fontSize: 8 }}>│ pivot = equal │</div>
-          <div className="runs-legend-item">
-            <span>Runs Scored</span>
-            <div className="runs-legend-dot" style={{ background: GRAD_WIN }} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+function StandingsTable({ data, teams, onTeamClick }) {
+  const allRecords = useMemo(() => {
+    return teams.all.map(id => {
+      const rec = teamRecord(data, id);
+      return { id, ...rec };
+    });
+  }, [data, teams]);
 
-// ─── LEAGUE TAB ───────────────────────────────────────────────────────────────
-function LeagueTab({ data, teams, onTeamClick }) {
-  const [oppOpen,       setOppOpen]       = useState(true);
-  const [pitchLeadOpen, setPitchLeadOpen] = useState(false);
-  const [batLeadOpen,   setBatLeadOpen]   = useState(false);
-  const [ptmOpen,       setPtmOpen]       = useState(true);
-  const [defOpen,       setDefOpen]       = useState(false);
+  const rvrh = allRecords.find(r => r.id === "RVRH");
+  const field = allRecords.filter(r => r.id !== "RVRH");
 
-  const focalSummaries = useMemo(() =>
-    teams.focal.map(t => teamSummary(data, t)), [data, teams]);
-
-  const oppSummaries = useMemo(() =>
-    teams.opponents.map(t => {
-      const pRows = data.pitching.filter(r => r.Team === t);
-      const agg   = aggPitching(pRows);
-      const IP    = agg.reduce((s, r) => s + r.Outs, 0) / 3;
-      const tK    = agg.reduce((s, r) => s + r.K,   0);
-      const tBB   = agg.reduce((s, r) => s + r.BB,  0);
-      const tH    = agg.reduce((s, r) => s + r.H,   0);
-      const tR    = agg.reduce((s, r) => s + r.R,   0);
-      // Count every appearance in the game log, not just focal-team rows
-      const G = data.gameLog.filter(g => g.Away_Team === t || g.Home_Team === t).length;
-      return { teamId: t, G,
-        ERA:  safe(tR * 9, IP),
-        WHIP: safe(tH + tBB, IP),
-        KBB:  tBB > 0 ? tK / tBB : tK > 0 ? 99 : 0 };
-    }).filter(s => s.G > 0 || data.pitching.some(r => r.Team === s.teamId)),
-    [data, teams]
-  );
-
-  // Playoff Threat Matrix — focal teams only (4+ games = reliable data)
-  const ptmRows = useMemo(() =>
-    teams.focal.map(t => {
-      const pt = playoffThreat(data, t);
-      return pt ? { teamId: t, ...pt } : null;
-    }).filter(Boolean).sort((a, b) => b.score - a.score),
-    [data, teams]
-  );
-
-  // Defensive Targets — top error-prone opponent players across all opponents
-  const defTargets = useMemo(() =>
-    teams.opponents.flatMap(t =>
-      defensiveTargets(data, t).map(d => ({ ...d, Team: t }))
-    ).sort((a, b) => b.Errors - a.Errors).slice(0, 8),
-    [data, teams]
-  );
-
-  // Cross-focal pitching leaders — min 8 IP (24 outs), sorted by ERA
-  const pitchLeaders = useMemo(() =>
-    teams.focal.flatMap(t =>
-      aggPitching(data.pitching.filter(r => r.Team === t))
-        .filter(p => p.Outs >= 24)
-        .map(p => ({ ...p, Team: t }))
-    ).sort((a, b) => a.ERA - b.ERA).slice(0, 5),
-    [data, teams]
-  );
-
-  // Cross-focal batting leaders — min 12 PA, sorted by OPS
-  const batLeaders = useMemo(() =>
-    teams.focal.flatMap(t =>
-      aggBatting(data.batting.filter(r => r.Team === t))
-        .filter(b => b.PA >= 12)
-        .map(b => ({ ...b, Team: t }))
-    ).sort((a, b) => b.OPS - a.OPS).slice(0, 5),
-    [data, teams]
-  );
-
-  const { sorted: fSorted, col: fCol, dir: fDir, toggle: fToggle } = useSort(focalSummaries, "ERA", "asc");
-
-  const eraSorted = [...focalSummaries].filter(s => s.G > 0).sort((a, b) => a.ERA - b.ERA);
-  const opsSorted = [...focalSummaries].filter(s => s.G > 0).sort((a, b) => (b.teamOBP + b.teamSLG) - (a.teamOBP + a.teamSLG));
-  const runsSorted = [...focalSummaries].filter(s => s.G > 0).sort((a, b) => b.RpG - a.RpG);
-  const kbbSorted  = [...focalSummaries].filter(s => s.G > 0).sort((a, b) => b.KBB - a.KBB);
-
-  // Accordion header shared style
-  const accHdr = open => ({
-    display: "flex", alignItems: "center", justifyContent: "space-between",
-    padding: "11px 16px",
-    background: open ? "var(--s2)" : "var(--s2)",
-    cursor: "pointer", userSelect: "none",
-  });
+  const { sorted: sortedField, col, dir, toggle } = useSort(field, "W");
 
   return (
-    <div>
-
-      {/* ── VISUAL SUMMARY CHARTS ─────────────────────────────── */}
-      <div className="league-charts">
-        <LeagueBarChart
-          title="Team ERA — focal teams (lower is better)"
-          rows={eraSorted.map(s => ({
-            label: s.teamId, value: s.ERA, display: fix2(s.ERA), lowerBetter: true,
-            gradient: s.ERA <= 2.5 ? "linear-gradient(90deg,#1A6035,#2DB860)"
-                    : s.ERA >= 5   ? "linear-gradient(90deg,#9B2020,#D94040)"
-                    : "linear-gradient(90deg,#002060,#2A52A8)",
-            valColor: s.ERA <= 2.5 ? "var(--green)" : s.ERA >= 5 ? "var(--red)" : "var(--text)",
-          }))}
-        />
-        <RunsChart
-          title="Runs scored (RS) vs allowed (RA) per game"
-          teams={runsSorted}
-        />
-        <LeagueBarChart
-          title="Team OPS — focal teams"
-          rows={opsSorted.map(s => ({
-            label: s.teamId, value: s.teamOBP + s.teamSLG,
-            display: avg3(s.teamOBP + s.teamSLG), lowerBetter: false,
-            gradient: (s.teamOBP + s.teamSLG) >= 0.8
-              ? "linear-gradient(90deg,#1A6035,#2DB860)"
-              : "linear-gradient(90deg,#002060,#2A52A8)",
-            valColor: (s.teamOBP + s.teamSLG) >= 0.8 ? "var(--green)" : "var(--text)",
-          }))}
-        />
-        <LeagueBarChart
-          title="K/BB ratio — focal teams (pitching command)"
-          rows={kbbSorted.map(s => ({
-            label: s.teamId, value: clamp(s.KBB, 20),
-            display: fix1(clamp(s.KBB, 20)), lowerBetter: false,
-            gradient: s.KBB >= 2 ? "linear-gradient(90deg,#1A6035,#2DB860)"
-                    : s.KBB < 1  ? "linear-gradient(90deg,#9B2020,#D94040)"
-                    : "linear-gradient(90deg,#002060,#2A52A8)",
-            valColor: s.KBB >= 2 ? "var(--green)" : s.KBB < 1 ? "var(--red)" : "var(--text)",
-          }))}
-        />
-      </div>
-
-      {/* ── FOCAL TEAM TABLE ──────────────────────────────────── */}
-      <div className="sec-title">Focal teams — click to view profile</div>
-      <div className="tbl-wrap" style={{ marginBottom: 16 }}>
-        <table>
-          <thead><tr>
-            <Th c="teamId"  label="Team"  s={fCol} d={fDir} fn={fToggle} left />
-            <Th c="W"       label="W"     s={fCol} d={fDir} fn={fToggle} />
-            <Th c="L"       label="L"     s={fCol} d={fDir} fn={fToggle} />
-            <Th c="G"       label="G"     s={fCol} d={fDir} fn={fToggle} />
-            <Th c="RpG"     label="R/G"   s={fCol} d={fDir} fn={fToggle} />
-            <Th c="RApG"    label="RA/G"  s={fCol} d={fDir} fn={fToggle} />
-            <Th c="ERA"     label="ERA"   s={fCol} d={fDir} fn={fToggle} />
-            <Th c="WHIP"    label="WHIP"  s={fCol} d={fDir} fn={fToggle} />
-            <Th c="KBB"     label="K/BB"  s={fCol} d={fDir} fn={fToggle} />
-            <Th c="KPct"    label="K%"    s={fCol} d={fDir} fn={fToggle} />
-            <Th c="BBPct"   label="BB%"   s={fCol} d={fDir} fn={fToggle} />
-            <Th c="teamAVG" label="AVG"   s={fCol} d={fDir} fn={fToggle} />
-            <Th c="teamOBP" label="OBP"   s={fCol} d={fDir} fn={fToggle} />
-          </tr></thead>
-          <tbody>
-            {fSorted.map(s => (
-              <tr key={s.teamId} onClick={() => onTeamClick(s.teamId)}>
-                <td><span className="focal-dot" /><span style={{ fontWeight: 500 }}>{s.teamId}</span></td>
-                <td className="td-r c-g mono">{s.W}</td>
-                <td className={`td-r mono ${s.L > s.W ? "c-r" : ""}`}>{s.L}</td>
-                <td className="td-r mono">{s.G}</td>
-                <td className={`td-r mono ${s.RpG >= 8 ? "c-g" : ""}`}>{fix1(s.RpG)}</td>
-                <td className={`td-r mono ${s.RApG <= 3 ? "c-g" : s.RApG >= 7 ? "c-r" : ""}`}>{fix1(s.RApG)}</td>
-                <td className={`td-r mono ${s.ERA <= 2.5 ? "c-g" : s.ERA >= 5 ? "c-r" : ""}`}>{fix2(s.ERA)}</td>
-                <td className={`td-r mono ${s.WHIP <= 1.2 ? "c-g" : s.WHIP >= 2 ? "c-r" : ""}`}>{fix2(s.WHIP)}</td>
-                <td className={`td-r mono ${s.KBB >= 2 ? "c-g" : s.KBB < 1 ? "c-r" : ""}`}>{fix1(clamp(s.KBB, 20))}{s.KBB > 20 ? "+" : ""}</td>
-                <td className="td-r mono">{pct(s.KPct)}</td>
-                <td className={`td-r mono ${s.BBPct >= 0.12 ? "c-r" : ""}`}>{pct(s.BBPct)}</td>
-                <td className={`td-r mono ${s.teamAVG >= 0.3 ? "c-g" : ""}`}>{avg3(s.teamAVG)}</td>
-                <td className={`td-r mono ${s.teamOBP >= 0.35 ? "c-g" : ""}`}>{avg3(s.teamOBP)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* ── PITCHING LEADERS ACCORDION ────────────────────────── */}
-      <div className="leaders-acc">
-        <div className="leaders-acc-hdr" onClick={() => setPitchLeadOpen(o => !o)}>
-          <span className="leaders-acc-title">⚾ Pitching leaders — top 5 ERA across focal teams (min 8 IP)</span>
-          <span className="leaders-acc-toggle">{pitchLeadOpen ? "▲" : "▼"}</span>
-        </div>
-        {pitchLeadOpen && (
-          <div className="leaders-acc-body">
-            {pitchLeaders.length === 0 ? (
-              <div style={{ padding: "14px 16px", fontSize: 13, color: "var(--muted)" }}>No pitchers with 8+ IP recorded yet.</div>
-            ) : pitchLeaders.map((p, i) => (
-              <div key={`${p.Team}-${p.Pitcher}`} className="leaders-row">
-                <div className="leaders-rank">{i + 1}</div>
-                <div className="leaders-name">{p.Pitcher}</div>
-                <div className="leaders-team">{p.Team}</div>
-                <div className={`leaders-stat ${p.ERA <= 2.5 ? "c-g" : p.ERA >= 5 ? "c-r" : ""}`}>{fix2(p.ERA)} ERA</div>
-                <div className={`leaders-stat2 ${p.WHIP <= 1.2 ? "c-g" : p.WHIP >= 2 ? "c-r" : ""}`}>{fix2(p.WHIP)} WHIP</div>
-                <div className="leaders-sub">{fmtIP(p.Outs)} IP</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── BATTING LEADERS ACCORDION ─────────────────────────── */}
-      <div className="leaders-acc" style={{ marginBottom: 8 }}>
-        <div className="leaders-acc-hdr" onClick={() => setBatLeadOpen(o => !o)}>
-          <span className="leaders-acc-title">🏏 Batting leaders — top 5 OPS across focal teams (min 12 PA)</span>
-          <span className="leaders-acc-toggle">{batLeadOpen ? "▲" : "▼"}</span>
-        </div>
-        {batLeadOpen && (
-          <div className="leaders-acc-body">
-            {batLeaders.length === 0 ? (
-              <div style={{ padding: "14px 16px", fontSize: 13, color: "var(--muted)" }}>No batters with 12+ PA recorded yet.</div>
-            ) : batLeaders.map((b, i) => (
-              <div key={`${b.Team}-${b.Player}`} className="leaders-row">
-                <div className="leaders-rank">{i + 1}</div>
-                <div className="leaders-name">{b.Player}</div>
-                <div className="leaders-team">{b.Team}</div>
-                <div className={`leaders-stat ${b.OPS >= 0.9 ? "c-g" : b.OPS >= 0.75 ? "c-a" : ""}`}>{avg3(b.OPS)} OPS</div>
-                <div className={`leaders-stat2 ${b.OBP >= 0.38 ? "c-g" : ""}`}>{avg3(b.OBP)} OBP</div>
-                <div className="leaders-sub">{b.PA} PA</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── OPPONENT INTEL ────────────────────────────────────── */}
-      <div className="opp-intel">
-        <div className="opp-intel-header" onClick={() => setOppOpen(o => !o)}>
-          <span className="opp-dot" />
-          <span className="opp-intel-title">Opponent intel — {teams.opponents.length} teams</span>
-          <span className="opp-intel-toggle">{oppOpen ? "▲ collapse" : "▼ expand"}</span>
-        </div>
-        {oppOpen && (
-          <div>
-            <p style={{ fontSize: 12, color: "var(--text2)", margin: "10px 0", lineHeight: 1.6 }}>
-              Teams scouted as opponents. Click any chip to view profile or run a matchup.
-            </p>
-            <div className="opp-grid">
-              {oppSummaries.map(s => (
-                <div key={s.teamId} className="opp-chip" onClick={() => onTeamClick(s.teamId)}>
-                  <span className="opp-chip-name">{s.teamId}</span>
-                  <span className="opp-chip-g">{s.G}G</span>
-                  {s.ERA > 0 && <span className="opp-chip-era">{fix2(s.ERA)} ERA</span>}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── PLAYOFF THREAT MATRIX ────────────────────────────── */}
-      {ptmRows.length > 0 && (
-        <div style={{ marginTop: 14 }}>
-          <div className="opp-intel" style={{ padding: 0 }}>
-            <div className="opp-intel-header" onClick={() => setPtmOpen(o => !o)} style={{ padding: "12px 16px" }}>
-              <span className="focal-dot" />
-              <span className="opp-intel-title">Playoff Threat Matrix — {ptmRows.length} focal teams</span>
-              <span className="opp-intel-toggle">{ptmOpen ? "▲ collapse" : "▼ expand"}</span>
-            </div>
-            {ptmOpen && (
-              <div style={{ borderTop: "1px solid var(--bd)" }}>
-                {ptmRows.map(t => {
-                  const maxScore = ptmRows[0]?.score || 1;
-                  return (
-                    <div key={t.teamId} className="ptm-row" onClick={() => onTeamClick(t.teamId)}>
-                      <span className="ptm-team">{t.teamId}</span>
-                      <span className="ptm-tier" style={{ background: t.tierColor + "18", color: t.tierColor, border: `1px solid ${t.tierColor}40` }}>
-                        {t.tier}
-                      </span>
-                      <div className="ptm-bar">
-                        <div className="ptm-bar-fill" style={{ width: `${(t.score / maxScore) * 100}%`, background: t.tierColor }} />
-                      </div>
-                      <span className="ptm-stat">{t.W}-{t.L}</span>
-                      <span className="ptm-stat">{fix2(t.teamERA)} ERA</span>
-                      <span className="ptm-stat">{avg3(t.teamAVG)} AVG</span>
-                      <span className="ptm-stat">{fix1(t.ePG)} E/G</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── DEFENSIVE TARGETS ────────────────────────────────── */}
-      {defTargets.length > 0 && (
-        <div style={{ marginTop: 14 }}>
-          <div className="opp-intel">
-            <div className="opp-intel-header" onClick={() => setDefOpen(o => !o)}>
-              <span className="opp-dot" />
-              <span className="opp-intel-title">Defensive Targets — error-prone opponents</span>
-              <span className="opp-intel-toggle">{defOpen ? "▲ collapse" : "▼ expand"}</span>
-            </div>
-            {defOpen && (
-              <div style={{ marginTop: 12 }}>
-                <p style={{ fontSize: 12, color: "var(--text2)", marginBottom: 10, lineHeight: 1.6 }}>
-                  Players with the most errors across scouted opponents. Exploit with aggressive baserunning and balls in play.
-                </p>
-                <div className="def-targets">
-                  {defTargets.map(d => (
-                    <div key={`${d.Team}-${d.Player}`} className="def-card">
-                      <div className="def-name">{d.Player}</div>
-                      <div className="def-stat">{d.Errors} E</div>
-                      <div className="def-sub">{d.Team} · {fix1(d.ePG)} E/G</div>
-                    </div>
+    <div className="standings-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style={{ textAlign: "left" }}>Team</th>
+            <Th c="W" label="W" s={col} d={dir} fn={toggle} />
+            <Th c="L" label="L" s={col} d={dir} fn={toggle} />
+            <Th c="RS" label="RS" s={col} d={dir} fn={toggle} />
+            <Th c="RA" label="RA" s={col} d={dir} fn={toggle} />
+            <Th c="diff" label={"+/−"} s={col} d={dir} fn={toggle} />
+            <th style={{ textAlign: "right", cursor: "default" }}>Streak</th>
+            <th style={{ textAlign: "center", cursor: "default" }}>Last 5</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rvrh && (
+            <tr className="standings-rvrh standings-sep" onClick={() => onTeamClick("RVRH")}>
+              <td className="td-name">{rvrh.id}</td>
+              <td className="td-r">{rvrh.W}</td>
+              <td className="td-r">{rvrh.L}</td>
+              <td className="td-r">{rvrh.RS}</td>
+              <td className="td-r">{rvrh.RA}</td>
+              <td className={`td-r ${rvrh.diff > 0 ? "c-g" : rvrh.diff < 0 ? "c-r" : "c-m"}`}>{rvrh.diff > 0 ? "+" : ""}{rvrh.diff}</td>
+              <td className={`td-r ${rvrh.streak.startsWith("W") ? "c-g" : "c-r"}`}>{rvrh.streak}</td>
+              <td>
+                <div className="last5-dots" style={{ justifyContent: "center" }}>
+                  {rvrh.last5.slice().reverse().map((g, i) => (
+                    <div key={i} className={`last5-dot ${g.W ? "last5-w" : "last5-l"}`} />
                   ))}
                 </div>
+              </td>
+            </tr>
+          )}
+          {sortedField.map(t => (
+            <tr key={t.id} onClick={() => onTeamClick(t.id)}>
+              <td className="td-name">{t.id}</td>
+              <td className="td-r">{t.W}</td>
+              <td className="td-r">{t.L}</td>
+              <td className="td-r">{t.RS}</td>
+              <td className="td-r">{t.RA}</td>
+              <td className={`td-r ${t.diff > 0 ? "c-g" : t.diff < 0 ? "c-r" : "c-m"}`}>{t.diff > 0 ? "+" : ""}{t.diff}</td>
+              <td className={`td-r ${t.streak.startsWith("W") ? "c-g" : "c-r"}`}>{t.streak}</td>
+              <td>
+                <div className="last5-dots" style={{ justifyContent: "center" }}>
+                  {t.last5.slice().reverse().map((g, i) => (
+                    <div key={i} className={`last5-dot ${g.W ? "last5-w" : "last5-l"}`} />
+                  ))}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LeagueHeatMap({ data, teams, onTeamClick }) {
+  const heatData = useMemo(() => {
+    const rows = teams.all.map(id => {
+      const s = teamSummary(data, id);
+      const batters = aggBatting(data.batting.filter(r => r.Team === id));
+      const totalSB = batters.reduce((sum, b) => sum + b.SB, 0);
+      const totalCS = batters.reduce((sum, b) => sum + b.CS, 0);
+      const sbPct = totalSB + totalCS > 0 ? totalSB / (totalSB + totalCS) : 0;
+      const errG = s.errors / (s.G || 1);
+      return { id, era: s.ERA, ops: s.teamOBP + s.teamSLG, errG, sbPct };
+    }).filter(r => r.era > 0 || r.ops > 0);
+
+    rows.sort((a, b) => a.id.localeCompare(b.id));
+
+    const range = (key) => {
+      const v = rows.map(r => r[key]);
+      return { min: Math.min(...v), max: Math.max(...v) };
+    };
+
+    return { rows, eraR: range("era"), opsR: range("ops"), errR: range("errG"), sbR: range("sbPct") };
+  }, [data, teams]);
+
+  return (
+    <div className="heatmap-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style={{ textAlign: "left" }}>Team</th>
+            <th style={{ textAlign: "right" }}>ERA</th>
+            <th style={{ textAlign: "right" }}>OPS</th>
+            <th style={{ textAlign: "right" }}>Err/G</th>
+            <th style={{ textAlign: "right" }}>SB%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {heatData.rows.map(t => (
+            <tr key={t.id} className={t.id === "RVRH" ? "heatmap-rvrh" : ""} onClick={() => onTeamClick(t.id)}>
+              <td className="td-name">{t.id}</td>
+              <td className="td-r" style={{ background: heatColor(t.era, heatData.eraR.min, heatData.eraR.max, true) }}>{fix2(t.era)}</td>
+              <td className="td-r" style={{ background: heatColor(t.ops, heatData.opsR.min, heatData.opsR.max, false) }}>{avg3(t.ops)}</td>
+              <td className="td-r" style={{ background: heatColor(t.errG, heatData.errR.min, heatData.errR.max, true) }}>{fix1(t.errG)}</td>
+              <td className="td-r" style={{ background: heatColor(t.sbPct, heatData.sbR.min, heatData.sbR.max, false) }}>{t.sbPct > 0 ? pct(t.sbPct) : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LeagueTab({ data, teams, onTeamClick }) {
+  return (
+    <div>
+      <LeagueScatterPlot data={data} teams={teams} onTeamClick={onTeamClick} />
+      <StandingsTable data={data} teams={teams} onTeamClick={onTeamClick} />
+      <LeagueHeatMap data={data} teams={teams} onTeamClick={onTeamClick} />
+    </div>
+  );
+}
+
+// ─── TEAMS TAB ──────────────────────────────────────────────────────────────
+
+function TeamsCardGrid({ data, teams, onTeamClick }) {
+  const { focalCards, limitedCards } = useMemo(() => {
+    const focal = [];
+    const limited = [];
+    teams.all.forEach(id => {
+      const pt = playoffThreat(data, id);
+      const games = data.gameLog.filter(g => g.Away_Team === id || g.Home_Team === id);
+      const G = games.length;
+      const rec = teamRecord(data, id);
+      const s = teamSummary(data, id);
+
+      const card = {
+        id, score: pt ? pt.score : 0, G,
+        W: rec.W, L: rec.L,
+        ERA: s.ERA, AVG: s.teamAVG,
+        last3: rec.results.slice(0, 3),
+      };
+
+      if (G >= 4) focal.push(card);
+      else limited.push(card);
+    });
+    focal.sort((a, b) => b.score - a.score);
+    limited.sort((a, b) => b.score - a.score);
+    return { focalCards: focal, limitedCards: limited };
+  }, [data, teams]);
+
+  const [showLimited, setShowLimited] = useState(false);
+
+  return (
+    <div>
+      <div className="team-grid">
+        {focalCards.map(c => {
+          const tier = threatTierUI(c.score);
+          return (
+            <div key={c.id} className="team-card"
+              style={{ background: tier.bg, color: tier.textColor }}
+              onClick={() => onTeamClick(c.id)}>
+              <div className="team-card-name">{c.id}</div>
+              <div className="team-card-stats">
+                <span>{c.W}-{c.L}</span>
+                <span>{fix2(c.ERA)} ERA</span>
+                <span>{avg3(c.AVG)} AVG</span>
               </div>
-            )}
+              <div className="team-card-last3">
+                {c.last3.map((g, i) => (
+                  <div key={i} className={`wl-badge ${g.W ? "wl-w" : "wl-l"}`}>
+                    {g.W ? "W" : "L"}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {limitedCards.length > 0 && (
+        <div className="limited-acc">
+          <div className="limited-acc-hdr" onClick={() => setShowLimited(v => !v)}>
+            <span className="limited-acc-title">{"Additional opponents \u00b7 limited data"} ({limitedCards.length})</span>
+            <span className="limited-acc-toggle">{showLimited ? "▲" : "▼"}</span>
           </div>
+          {showLimited && (
+            <div className="limited-acc-body">
+              <div className="team-grid">
+                {limitedCards.map(c => (
+                  <div key={c.id} className="team-card"
+                    style={{ background: "#DDDAD2", color: "var(--text)" }}
+                    onClick={() => onTeamClick(c.id)}>
+                    <div className="team-card-name">{c.id}</div>
+                    <div className="team-card-stats">
+                      <span>{c.W}-{c.L}</span>
+                      {c.ERA > 0 && <span>{fix2(c.ERA)} ERA</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-// ─── TEAM PROFILE ─────────────────────────────────────────────────────────────
-function TeamProfile({ data, teamId, teams, onBack, onMatchup }) {
-  const s = useMemo(() => teamSummary(data, teamId), [data, teamId]);
-  const isFocal = teams.focal.includes(teamId);
-  const [rotOpen, setRotOpen] = useState(false);
-  const [defTgtOpen, setDefTgtOpen] = useState(false);
+function TeamBriefing({ data, teamId, drawerState, setDrawerState, onPlayerClick, onBack }) {
+  const summary = useMemo(() => teamSummary(data, teamId), [data, teamId]);
+  const rec = useMemo(() => teamRecord(data, teamId), [data, teamId]);
+  const pitchers = useMemo(() =>
+    aggPitching(data.pitching.filter(r => r.Team === teamId)).sort((a, b) => b.Outs - a.Outs),
+    [data, teamId]);
+  const batters = useMemo(() =>
+    aggBatting(data.batting.filter(r => r.Team === teamId)).sort((a, b) => b.PA - a.PA),
+    [data, teamId]);
+  const targets = useMemo(() => defensiveTargets(data, teamId), [data, teamId]);
 
-  const pitchers = useMemo(() => [...s.pitchers].sort((a,b) => b.IP - a.IP), [s]);
-  const { sorted: bSort, col: bCol, dir: bDir, toggle: bToggle } = useSort(
-    s.batters.filter(r => r.PA >= 3), "OPS"
-  );
+  const { sorted: sortedBatters, col: bCol, dir: bDir, toggle: bToggle } = useSort(batters, "PA");
 
-  const rotation = useMemo(() => opponentRotation(data, teamId), [data, teamId]);
-  const defTgts  = useMemo(() => defensiveTargets(data, teamId), [data, teamId]);
+  const last3 = rec.results.slice(0, 3);
+  const gamesScouted = data.gameLog.filter(g => g.Away_Team === teamId || g.Home_Team === teamId).length;
+
+  const batteryData = useMemo(() => {
+    return pitchers.filter(p => p.WP > 0).map(p => ({
+      Pitcher: p.Pitcher, WP: p.WP, WPG: p.G > 0 ? (p.WP / p.G) : 0
+    })).sort((a, b) => b.WP - a.WP);
+  }, [pitchers]);
+
+  const brData = useMemo(() => {
+    const sb = batters.reduce((s, b) => s + b.SB, 0);
+    const cs = batters.reduce((s, b) => s + b.CS, 0);
+    return { SB: sb, CS: cs, SBPct: sb + cs > 0 ? sb / (sb + cs) : 0 };
+  }, [batters]);
+
+  const sitData = useMemo(() => {
+    const sac = batters.reduce((s, b) => s + b.SAC, 0);
+    const gdp = batters.reduce((s, b) => s + b.GDP, 0);
+    const G = gamesScouted || 1;
+    return { SAC: sac, GDP: gdp, GDPG: gdp / G, total: sac + gdp };
+  }, [batters, gamesScouted]);
+
+  const toggleDrawer = key => setDrawerState(prev => ({ ...prev, [key]: !prev[key] }));
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <button className="back-btn" onClick={onBack}>← League</button>
-        <button className="back-btn" style={{ borderColor: "var(--gold)", color: "var(--gold)" }}
-          onClick={() => onMatchup(teamId)}>
-          Matchup →
-        </button>
+      <button className="back-btn" onClick={onBack}>{"← Back to Teams"}</button>
+
+      <div className="briefing-header">
+        <div className="briefing-name">{teamId}</div>
+        <div className="briefing-games">{gamesScouted} games scouted</div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 16 }}>
-        <span style={{ color: isFocal ? "var(--gold)" : "var(--muted)" }}>
-          {isFocal ? <span className="focal-dot" /> : <span className="opp-dot" />}
-        </span>
-        <span style={{ fontFamily: "'Nunito Sans'", fontWeight: 800, fontSize: 24, letterSpacing: 1 }}>{teamId}</span>
-        {isFocal
-          ? <span className="badge b-gold">focal</span>
-          : <span className="badge b-muted">opponent intel</span>}
-        {s.G > 0 && <span className="mono c-m" style={{ fontSize: 12 }}>{s.W}–{s.L} · {s.G} games</span>}
-      </div>
-
-      {s.G > 0 && (
-        <div className="g4" style={{ marginBottom: 18 }}>
-          {[
-            { l: "ERA",  v: fix2(s.ERA),  c: s.ERA <= 2.5 ? "c-g" : s.ERA >= 5 ? "c-r" : "" },
-            { l: "WHIP", v: fix2(s.WHIP), c: s.WHIP <= 1.2 ? "c-g" : s.WHIP >= 2 ? "c-r" : "" },
-            { l: "K/BB", v: fix1(clamp(s.KBB,20))+(s.KBB>20?"+":""), c: s.KBB >= 2 ? "c-g" : s.KBB < 1 ? "c-r" : "" },
-            { l: "Team OPS", v: avg3(s.teamOBP + s.teamSLG), c: "" },
-            { l: "Errors", v: s.errors, c: s.errors >= 5 ? "c-r" : s.errors <= 1 ? "c-g" : "", sub: `${s.G} games` },
-          ].map(({ l, v, c, sub }) => (
-            <div key={l} className="stat-card">
-              <div className="stat-card-label">{l}</div>
-              <div className={`stat-card-value ${c}`}>{v}</div>
-              {sub && <div className="stat-card-sub">{sub}</div>}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="sec-title">Pitching staff</div>
-      <div className="pitcher-cards" style={{ marginBottom: 18 }}>
-        {pitchers.map(p => (
-          <div key={p.Pitcher} className="pc">
-            <div className="pc-name">
-              {p.Pitcher}
-              {(() => { const imp = pitcherImpact(p); return imp.tier !== "LIMITED" ? (
-                <span className={`tier-badge tier-${imp.tier === "ACE" ? "ace" : imp.tier === "QUALITY" ? "quality" : imp.tier === "AVERAGE" ? "average" : "below"}`}>
-                  {imp.emoji} {imp.tier}
-                </span>
-              ) : <span className="tier-badge tier-limited">LIMITED</span>; })()}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-              {p.G} app · {fmtIP(p.Outs)} IP · {p.BF} BF
-            </div>
-            <div className="pc-stats">
-              {[
-                { v: p.K,  l: "K",    c: p.K >= 8 ? "c-g" : "" },
-                { v: p.BB, l: "BB",   c: p.BB >= 5 ? "c-r" : "" },
-                { v: p.Outs > 0 ? fix2(p.ERA)  : "—", l: "ERA",  c: p.Outs > 0 && (p.ERA <= 2.5 ? "c-g" : p.ERA >= 5 ? "c-r" : "") },
-                { v: p.Outs > 0 ? fix2(p.WHIP) : "—", l: "WHIP", c: p.Outs > 0 && (p.WHIP <= 1.2 ? "c-g" : p.WHIP >= 2 ? "c-r" : "") },
-                { v: p.Outs > 0 ? fix1(clamp(p.KBB, 20))+(p.KBB>20?"+":"") : "—", l: "K/BB", c: p.Outs > 0 && p.KBB >= 2 ? "c-g" : "" },
-                { v: p.Outs > 0 ? pct(p.BBPct) : "—", l: "BB%",  c: p.Outs > 0 && p.BBPct >= 0.12 ? "c-r" : "" },
-              ].map(({ v, l, c }) => (
-                <div key={l} className="pc-stat">
-                  <div className={`pc-stat-val ${c}`}>{v}</div>
-                  <div className="pc-stat-lbl">{l}</div>
-                </div>
-              ))}
-            </div>
-          </div>
+      <div className="slim-header">
+        <span className="slim-stat">{rec.W}-{rec.L}</span>
+        <span className="slim-sep">{"\u00b7"}</span>
+        <span className="slim-stat">{fix2(summary.ERA)} ERA</span>
+        <span className="slim-sep">{"\u00b7"}</span>
+        <span className="slim-stat">{fix2(summary.WHIP)} WHIP</span>
+        {last3.map((g, i) => (
+          <span key={i} className={`slim-pill ${g.W ? "slim-pill-w" : "slim-pill-l"}`}>
+            {g.W ? "W" : "L"} {g.rs}-{g.ra}
+          </span>
         ))}
       </div>
 
-      <div className="sec-title">Batting leaders (min 3 PA)</div>
-      <div className="tbl-wrap">
-        <table>
-          <thead><tr>
-            {[["Player","Player",true],["G","G"],["PA","PA"],["H","H"],["HR","HR"],["RBI","RBI"],["SB","SB"],["K","K"],["BB","BB"],["AVG","AVG"],["OBP","OBP"],["SLG","SLG"],["OPS","OPS"]].map(([c,l,left]) => (
-              <Th key={c} c={c} label={l} s={bCol} d={bDir} fn={bToggle} left={!!left} />
-            ))}
-            <th style={{ textAlign: "center", fontSize: 11, fontFamily: "'Nunito Sans'", fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: ".8px", background: "var(--s2)", borderBottom: "2px solid var(--bd)", padding: "10px 8px" }}>Threat</th>
-          </tr></thead>
-          <tbody>
-            {bSort.map(r => (
-              <tr key={r.Player}>
-                <td style={{ fontWeight: 500 }}>{r.Player}</td>
-                <td className="td-r mono">{r.G}</td><td className="td-r mono">{r.PA}</td>
-                <td className="td-r mono">{r.H}</td>
-                <td className={`td-r mono ${r.HR > 0 ? "c-g" : ""}`}>{r.HR}</td>
-                <td className="td-r mono">{r.RBI}</td>
-                <td className="td-r mono c-b">{r.SB}</td>
-                <td className={`td-r mono ${r.K >= 5 ? "c-r" : ""}`}>{r.K}</td>
-                <td className="td-r mono">{r.BB}</td>
-                <td className={`td-r mono ${r.AVG >= 0.3 ? "c-g" : r.AVG < 0.2 ? "c-r" : ""}`}>{avg3(r.AVG)}</td>
-                <td className={`td-r mono ${r.OBP >= 0.35 ? "c-g" : ""}`}>{avg3(r.OBP)}</td>
-                <td className="td-r mono">{avg3(r.SLG)}</td>
-                <td className={`td-r mono ${r.OPS >= 0.8 ? "c-g" : ""}`}>{avg3(r.OPS)}</td>
-                <td style={{ textAlign: "center" }}>{(() => { const ht = hitterThreat(r); const cls = ht.tier === "ELITE" ? "tier-elite" : ht.tier === "HIGH" ? "tier-high" : ht.tier === "MODERATE" ? "tier-moderate" : ht.tier === "LIMITED" ? "tier-limited" : "tier-low"; return <span className={`tier-badge ${cls}`}>{ht.tier}</span>; })()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* ── OPPONENT ROTATION ─────────────────────────────────── */}
-      {rotation.length > 0 && (
-        <div style={{ marginTop: 16 }}>
-          <div className="opp-intel">
-            <div className="opp-intel-header" onClick={() => setRotOpen(o => !o)}>
-              <span style={{ fontSize: 12 }}>⚾</span>
-              <span className="opp-intel-title">Pitching Rotation — {rotation.length} pitchers tracked</span>
-              <span className="opp-intel-toggle">{rotOpen ? "▲" : "▼"}</span>
-            </div>
-            {rotOpen && (
-              <div style={{ marginTop: 12 }}>
-                <div className="rot-grid">
-                  {rotation.map(r => {
-                    const imp = pitcherImpact(s.pitchers.find(p => p.Pitcher === r.pitcher) || { Outs: 0 });
-                    return (
-                      <div key={r.pitcher} className="rot-card">
-                        <div className="rot-name">
-                          {r.pitcher}
-                          {imp.tier !== "LIMITED" && (
-                            <span className={`tier-badge tier-${imp.tier === "ACE" ? "ace" : imp.tier === "QUALITY" ? "quality" : imp.tier === "AVERAGE" ? "average" : "below"}`}>
-                              {imp.emoji} {imp.tier}
-                            </span>
-                          )}
-                        </div>
-                        <div className="rot-detail">
-                          {r.starts} start{r.starts !== 1 ? "s" : ""} · {r.avgIP} avg IP<br />
-                          Last: {r.lastStart ? String(r.lastStart).slice(0, 10) : "—"}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
+      {/* Pitching Drawer */}
+      <div className="drawer" style={{ marginTop: 14 }}>
+        <div className="drawer-hdr" onClick={() => toggleDrawer("pitching")}>
+          <span className="drawer-label" style={{ color: "var(--blue)" }}>Pitching</span>
+          <span className={`drawer-toggle ${drawerState.pitching ? "open" : ""}`}>{"▼"}</span>
         </div>
-      )}
+        {drawerState.pitching && (
+          <div className="drawer-body blue">
+            <div className="pitcher-grid">
+              {pitchers.map(p => {
+                const role = pitcherRole(p);
+                const outings = data.pitching
+                  .filter(r => r.Pitcher === p.Pitcher && r.Team === teamId)
+                  .sort((a, b) => String(a.Game_Date).localeCompare(String(b.Game_Date)));
 
-      {/* ── DEFENSIVE TARGETS (this team) ─────────────────────── */}
-      {defTgts.length > 0 && (
-        <div style={{ marginTop: 14 }}>
-          <div className="opp-intel">
-            <div className="opp-intel-header" onClick={() => setDefTgtOpen(o => !o)}>
-              <span style={{ fontSize: 12 }}>🎯</span>
-              <span className="opp-intel-title">Defensive Weakness Map — {defTgts.reduce((s, d) => s + d.Errors, 0)} total errors</span>
-              <span className="opp-intel-toggle">{defTgtOpen ? "▲" : "▼"}</span>
-            </div>
-            {defTgtOpen && (
-              <div style={{ marginTop: 12 }}>
-                <div className="def-targets">
-                  {defTgts.map(d => (
-                    <div key={d.Player} className="def-card">
-                      <div className="def-name">{d.Player}</div>
-                      <div className="def-stat">{d.Errors} E</div>
-                      <div className="def-sub">{fix1(d.ePG)} E/G</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── TEAMS TAB ───────────────────────────────────────────────────────────────
-function TeamsTab({ data, teams, focalTeam, onPlayerClick }) {
-  const [selectedTeam, setSelectedTeam] = useState(null);
-
-  // List view — focal team cards
-  if (!selectedTeam) {
-    return (
-      <div>
-        <div className="sec-title">Team Profiles</div>
-        <div className="team-cards">
-          {teams.focal.map(tid => {
-            const s = teamSummary(data, tid);
-            return (
-              <div key={tid} className="team-card" onClick={() => setSelectedTeam(tid)}>
-                <div className="team-card-name">
-                  <span className="focal-dot" />{tid}
-                </div>
-                <div className="team-card-record">{s.W}–{s.L} · {s.G} games</div>
-                <div className="team-card-stats">
-                  {[
-                    { v: fix2(s.RpG), l: "RS/G" },
-                    { v: fix2(s.RApG), l: "RA/G" },
-                    { v: fix2(s.ERA), l: "ERA" },
-                    { v: avg3(s.teamOBP + s.teamSLG), l: "OPS" },
-                  ].map(({ v, l }) => (
-                    <div key={l} className="team-card-stat">
-                      <div className="team-card-stat-val">{v}</div>
-                      <div className="team-card-stat-lbl">{l}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
-  // Profile view
-  return <FocalTeamProfile data={data} teamId={selectedTeam} teams={teams}
-    onBack={() => setSelectedTeam(null)} onPlayerClick={onPlayerClick} />;
-}
-
-function FocalTeamProfile({ data, teamId, teams, onBack, onPlayerClick }) {
-  const s = useMemo(() => teamSummary(data, teamId), [data, teamId]);
-  const pitcherNames = new Set(s.pitchers.map(p => p.Pitcher));
-  const batterNames = new Set(s.batters.map(b => b.Player));
-  const twoWayNames = new Set([...pitcherNames].filter(n => batterNames.has(n)));
-
-  // Recent form — last 5 games
-  const recentGames = useMemo(() => {
-    return data.gameLog
-      .filter(g => g.Focal_Team === teamId)
-      .sort((a, b) => String(a.Game_Date).localeCompare(String(b.Game_Date)))
-      .slice(-5);
-  }, [data, teamId]);
-
-  // Splits — home/away
-  const splits = useMemo(() => {
-    const home = { W: 0, L: 0, RS: 0, RA: 0, G: 0 };
-    const away = { W: 0, L: 0, RS: 0, RA: 0, G: 0 };
-    data.gameLog.filter(g => g.Focal_Team === teamId).forEach(g => {
-      const isHome = g.Home_Team === teamId;
-      const bucket = isHome ? home : away;
-      const ar = num(g.Away_R), hr = num(g.Home_R);
-      const tr = isHome ? hr : ar, or = isHome ? ar : hr;
-      bucket.G++;
-      bucket.RS += tr; bucket.RA += or;
-      if (tr > or) bucket.W++; else if (tr < or) bucket.L++;
-    });
-    return { home, away };
-  }, [data, teamId]);
-
-  // Splits — by opponent
-  const oppSplits = useMemo(() => {
-    const m = {};
-    data.gameLog.filter(g => g.Focal_Team === teamId).forEach(g => {
-      const opp = g.Away_Team === teamId ? g.Home_Team : g.Away_Team;
-      if (!m[opp]) m[opp] = { opp, W: 0, L: 0, RS: 0, RA: 0, G: 0 };
-      m[opp].G++;
-      const ar = num(g.Away_R), hr = num(g.Home_R);
-      const tr = g.Away_Team === teamId ? ar : hr, or = g.Away_Team === teamId ? hr : ar;
-      m[opp].RS += tr; m[opp].RA += or;
-      if (tr > or) m[opp].W++; else if (tr < or) m[opp].L++;
-    });
-    return Object.values(m).sort((a, b) => b.G - a.G);
-  }, [data, teamId]);
-
-  // Lineup card — from Roster sheet Order column
-  const lineup = useMemo(() => {
-    if (!data.roster) return [];
-    const rosterRows = data.roster.filter(r => r.Team_Code === teamId && r.Order);
-    if (rosterRows.length === 0) return [];
-    return rosterRows
-      .sort((a, b) => num(a.Order) - num(b.Order))
-      .map(r => {
-        const batter = s.batters.find(b => b.Player === r.Player);
-        return { slot: num(r.Order), name: r.Player, batter };
-      });
-  }, [data, teamId, s]);
-
-  // Pitching staff — sortable table
-  const pitchersWithRole = useMemo(() =>
-    s.pitchers.map(p => ({ ...p, Role: pitcherRole(p), isTwoWay: twoWayNames.has(p.Pitcher) })),
-    [s, twoWayNames]
-  );
-  const { sorted: pSort, col: pCol, dir: pDir, toggle: pToggle } = useSort(pitchersWithRole, "IP");
-
-  // Batting table — sortable
-  const battersWithFlags = useMemo(() =>
-    s.batters.map(b => ({ ...b, isTwoWay: twoWayNames.has(b.Player), KPct: safe(b.K, b.PA), BBPct: safe(b.BB, b.PA) })),
-    [s, twoWayNames]
-  );
-  const { sorted: bSort, col: bCol, dir: bDir, toggle: bToggle } = useSort(battersWithFlags, "OPS");
-
-  // Defensive summary
-  const defTgts = useMemo(() => defensiveTargets(data, teamId), [data, teamId]);
-
-  return (
-    <div>
-      {/* Back button */}
-      <button className="back-btn" onClick={onBack}>← Teams</button>
-
-      {/* Section 1 — Season Header Bar */}
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 16 }}>
-        <span className="focal-dot" />
-        <span style={{ fontFamily: "'Nunito Sans'", fontWeight: 800, fontSize: 24, letterSpacing: 1 }}>{teamId}</span>
-        <span className="badge b-gold">focal</span>
-      </div>
-      {s.G > 0 && (
-        <div className="g4" style={{ gridTemplateColumns: "repeat(5,1fr)", marginBottom: 18 }}>
-          {[
-            { l: "Record", v: `${s.W}–${s.L}` },
-            { l: "Run Diff", v: `${s.RS - s.RA >= 0 ? "+" : ""}${s.RS - s.RA}`, c: s.RS - s.RA > 0 ? "c-g" : s.RS - s.RA < 0 ? "c-r" : "" },
-            { l: "RS/G", v: fix2(s.RpG), c: s.RpG >= 5 ? "c-g" : "" },
-            { l: "RA/G", v: fix2(s.RApG), c: s.RApG <= 3 ? "c-g" : s.RApG >= 6 ? "c-r" : "" },
-            { l: "Games", v: s.G },
-          ].map(({ l, v, c }) => (
-            <div key={l} className="stat-card">
-              <div className="stat-card-label">{l}</div>
-              <div className={`stat-card-value ${c || ""}`}>{v}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Section 2 — Recent Form Strip */}
-      {recentGames.length > 0 && (
-        <>
-          <div className="sec-title">Recent Form</div>
-          <div className="form-strip">
-            {recentGames.map(g => {
-              const isAway = g.Away_Team === teamId;
-              const tr = isAway ? num(g.Away_R) : num(g.Home_R);
-              const or = isAway ? num(g.Home_R) : num(g.Away_R);
-              const opp = isAway ? g.Home_Team : g.Away_Team;
-              const result = tr > or ? "win" : tr < or ? "loss" : "tie";
-              const dateStr = g.Game_ID ? String(g.Game_ID).slice(5, 10) : String(g.Game_Date);
-              return (
-                <div key={g.Game_ID} className={`form-card ${result}`}>
-                  <div className="form-card-date">{dateStr}</div>
-                  <div className="form-card-opp">{isAway ? "@" : "vs"} {opp}</div>
-                  <div className="form-card-score" style={{ color: result === "win" ? "var(--green)" : result === "loss" ? "var(--red)" : "var(--muted)" }}>
-                    {tr}–{or} {result === "win" ? "W" : result === "loss" ? "L" : "T"}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
-
-      {/* Section 3 — Splits Panel */}
-      <div className="sec-title">Splits</div>
-      <div className="splits-panel">
-        <div className="split-card">
-          <div className="split-card-title">Home / Away</div>
-          {[
-            { label: "Home", data: splits.home },
-            { label: "Away", data: splits.away },
-          ].map(({ label, data: sp }) => (
-            <div key={label} className="split-row">
-              <span className="split-label">{label}</span>
-              <span className="split-val">{sp.W}–{sp.L} · RS {sp.RS} · RA {sp.RA}</span>
-            </div>
-          ))}
-        </div>
-        <div className="split-card">
-          <div className="split-card-title">By Opponent</div>
-          {oppSplits.map(os => (
-            <div key={os.opp} className="split-row">
-              <span className="split-label">{os.opp}</span>
-              <span className="split-val">{os.W}–{os.L} · RS {os.RS} · RA {os.RA}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Section 4 — Lineup Card */}
-      {lineup.length > 0 ? (
-        <>
-          <div className="sec-title">Lineup Card</div>
-          <div className="lineup-wrap">
-            {lineup.map(({ slot, name, batter }) => {
-              const ht = batter && batter.PA >= 8 ? hitterThreat(batter) : null;
-              return (
-                <div key={slot} className="lineup-row" onClick={() => onPlayerClick && onPlayerClick(teamId, name)}>
-                  <div className="lineup-slot">{slot}</div>
-                  <div className="lineup-name">{name}</div>
-                  {batter && <div className="lineup-stat">{avg3(batter.AVG)}</div>}
-                  {batter && <div className="lineup-stat">{avg3(batter.OBP)}</div>}
-                  {batter && <div className="lineup-stat">{avg3(batter.OPS)}</div>}
-                  {ht && <span className={`tier-badge tier-${ht.tier === "ELITE" ? "elite" : ht.tier === "HIGH" ? "high" : ht.tier === "MODERATE" ? "moderate" : "low"}`}>{ht.tier}</span>}
-                </div>
-              );
-            })}
-          </div>
-        </>
-      ) : (
-        data.roster && data.roster.some(r => r.Team_Code === teamId) ? (
-          <div style={{ background: "var(--s2)", border: "1px solid var(--bd)", borderRadius: "var(--radius)", padding: 16, marginBottom: 18, fontSize: 13, color: "var(--muted)" }}>
-            Lineup order not available — add <code>Order</code> column to Roster sheet to enable.
-          </div>
-        ) : null
-      )}
-
-      {/* Section 5 — Pitching Staff (sortable table) */}
-      <div className="sec-title">Pitching Staff</div>
-      <div className="tbl-wrap" style={{ marginBottom: 18 }}>
-        <table>
-          <thead><tr>
-            {[["Pitcher","Name",true],["Role","Role",true],["IP","IP"],["ERA","ERA"],["WHIP","WHIP"],["K","K"],["BB","BB"],["KBB","K/BB"],["BBPct","BB%"],["KPct","K%"]].map(([c,l,left]) => (
-              <Th key={c} c={c} label={l} s={pCol} d={pDir} fn={pToggle} left={!!left} />
-            ))}
-            <th style={{ textAlign: "center", fontSize: 11, fontFamily: "'Nunito Sans'", fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: ".8px", background: "var(--s2)", borderBottom: "2px solid var(--bd)", padding: "10px 8px" }}>Impact</th>
-          </tr></thead>
-          <tbody>
-            {pSort.map(p => {
-              const imp = pitcherImpact(p);
-              const roleCls = p.Role === "Starter" ? "role-starter" : p.Role === "Reliever" ? "role-reliever" : "role-closer";
-              return (
-                <tr key={p.Pitcher} onClick={() => onPlayerClick && onPlayerClick(teamId, p.Pitcher)} style={{ cursor: "pointer" }}>
-                  <td style={{ fontWeight: 500 }}>
-                    {p.Pitcher}
-                    {p.isTwoWay && <span className="two-way-badge">2-WAY</span>}
-                  </td>
-                  <td><span className={`role-badge ${roleCls}`}>{p.Role}</span></td>
-                  <td className="td-r mono">{fmtIP(p.Outs)}</td>
-                  <td className={`td-r mono ${p.ERA <= 2.5 ? "c-g" : p.ERA >= 5 ? "c-r" : ""}`}>{fix2(p.ERA)}</td>
-                  <td className={`td-r mono ${p.WHIP <= 1.2 ? "c-g" : p.WHIP >= 2 ? "c-r" : ""}`}>{fix2(p.WHIP)}</td>
-                  <td className={`td-r mono ${p.K >= 8 ? "c-g" : ""}`}>{p.K}</td>
-                  <td className={`td-r mono ${p.BB >= 5 ? "c-r" : ""}`}>{p.BB}</td>
-                  <td className={`td-r mono ${p.KBB >= 2 ? "c-g" : ""}`}>{fix1(clamp(p.KBB, 20))}{p.KBB > 20 ? "+" : ""}</td>
-                  <td className={`td-r mono ${p.BBPct >= 0.12 ? "c-r" : ""}`}>{pct(p.BBPct)}</td>
-                  <td className={`td-r mono`}>{pct(p.KPct)}</td>
-                  <td style={{ textAlign: "center" }}>
-                    {(() => { const cls = imp.tier === "ACE" ? "tier-ace" : imp.tier === "QUALITY" ? "tier-quality" : imp.tier === "AVERAGE" ? "tier-average" : imp.tier === "LIMITED" ? "tier-limited" : "tier-below"; return <span className={`tier-badge ${cls}`}>{imp.tier !== "LIMITED" && imp.emoji} {imp.tier}</span>; })()}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Section 6 — Full Roster Batting Table */}
-      <div className="sec-title">Full Roster Batting</div>
-      <div className="tbl-wrap" style={{ marginBottom: 18 }}>
-        <table>
-          <thead><tr>
-            {[["Player","Player",true],["PA","PA"],["AVG","AVG"],["OBP","OBP"],["SLG","SLG"],["OPS","OPS"],["HR","HR"],["SB","SB"],["KPct","K%"],["BBPct","BB%"],["GDP","GDP"]].map(([c,l,left]) => (
-              <Th key={c} c={c} label={l} s={bCol} d={bDir} fn={bToggle} left={!!left} />
-            ))}
-            <th style={{ textAlign: "center", fontSize: 11, fontFamily: "'Nunito Sans'", fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: ".8px", background: "var(--s2)", borderBottom: "2px solid var(--bd)", padding: "10px 8px" }}>Threat</th>
-          </tr></thead>
-          <tbody>
-            {bSort.map(r => {
-              const ht = hitterThreat(r);
-              const lowPA = r.PA < 8;
-              const cls = ht.tier === "ELITE" ? "tier-elite" : ht.tier === "HIGH" ? "tier-high" : ht.tier === "MODERATE" ? "tier-moderate" : ht.tier === "LIMITED" ? "tier-limited" : "tier-low";
-              return (
-                <tr key={r.Player} className={lowPA ? "muted-row" : ""} onClick={() => onPlayerClick && onPlayerClick(teamId, r.Player)} style={{ cursor: "pointer" }}>
-                  <td style={{ fontWeight: 500 }}>
-                    {r.Player}
-                    {r.isTwoWay && <span className="two-way-badge">2-WAY</span>}
-                  </td>
-                  <td className="td-r mono">{r.PA}</td>
-                  <td className={`td-r mono ${r.AVG >= 0.3 ? "c-g" : r.AVG < 0.2 ? "c-r" : ""}`}>{avg3(r.AVG)}</td>
-                  <td className={`td-r mono ${r.OBP >= 0.35 ? "c-g" : ""}`}>{avg3(r.OBP)}</td>
-                  <td className="td-r mono">{avg3(r.SLG)}</td>
-                  <td className={`td-r mono ${r.OPS >= 0.8 ? "c-g" : ""}`}>{avg3(r.OPS)}</td>
-                  <td className={`td-r mono ${r.HR > 0 ? "c-g" : ""}`}>{r.HR}</td>
-                  <td className="td-r mono c-b">{r.SB}</td>
-                  <td className={`td-r mono ${r.KPct >= 0.25 ? "c-r" : ""}`}>{pct(r.KPct)}</td>
-                  <td className="td-r mono">{pct(r.BBPct)}</td>
-                  <td className="td-r mono">{r.GDP}</td>
-                  <td style={{ textAlign: "center" }}><span className={`tier-badge ${cls}`}>{ht.tier}</span></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Section 7 — Defensive Summary */}
-      {defTgts.length > 0 && (
-        <>
-          <div className="sec-title">Defensive Summary</div>
-          <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10 }}>Players with recorded errors. Small sample sizes — use as directional only.</div>
-          <div className="tbl-wrap">
-            <table>
-              <thead><tr>
-                <th style={{ textAlign: "left" }}>Player</th>
-                <th>Errors</th>
-                <th>E/G</th>
-              </tr></thead>
-              <tbody>
-                {defTgts.map(d => (
-                  <tr key={d.Player}>
-                    <td style={{ fontWeight: 500 }}>{d.Player}</td>
-                    <td className={`td-r mono ${d.Errors >= 3 ? "c-r" : ""}`}>{d.Errors}</td>
-                    <td className="td-r mono">{fix2(d.ePG)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ─── PLAYERS TAB ─────────────────────────────────────────────────────────────
-function PlayersTab({ data, teams, focalTeam, navTeam, navPlayer }) {
-  const [selTeam, setSelTeam] = useState(navTeam || focalTeam);
-  const [selPlayer, setSelPlayer] = useState(navPlayer || null);
-
-  // Sync if cross-nav props change
-  useEffect(() => { if (navTeam) setSelTeam(navTeam); }, [navTeam]);
-  useEffect(() => { if (navPlayer) setSelPlayer(navPlayer); }, [navPlayer]);
-
-  const batters = useMemo(() => aggBatting(data.batting.filter(r => r.Team === selTeam)), [data, selTeam]);
-  const pitchers = useMemo(() => aggPitching(data.pitching.filter(r => r.Team === selTeam)), [data, selTeam]);
-  const pitcherNames = new Set(pitchers.map(p => p.Pitcher));
-  const batterNames = new Set(batters.map(b => b.Player));
-  const twoWayNames = new Set([...pitcherNames].filter(n => batterNames.has(n)));
-
-  // Unified player list
-  const playerList = useMemo(() => {
-    const seen = new Set();
-    const list = [];
-    batters.forEach(b => {
-      seen.add(b.Player);
-      list.push({ name: b.Player, G: b.G, PA: b.PA, primary: avg3(b.OPS), primaryLabel: "OPS", secondary: avg3(b.AVG), secondaryLabel: "AVG", type: "batter", isTwoWay: twoWayNames.has(b.Player), tier: hitterThreat(b) });
-    });
-    pitchers.forEach(p => {
-      if (!seen.has(p.Pitcher)) {
-        list.push({ name: p.Pitcher, G: p.G, PA: 0, primary: fix2(p.ERA), primaryLabel: "ERA", secondary: fmtIP(p.Outs), secondaryLabel: "IP", type: "pitcher", isTwoWay: false, tier: pitcherImpact(p) });
-      }
-    });
-    return list.sort((a, b) => b.PA - a.PA || b.G - a.G);
-  }, [batters, pitchers, twoWayNames]);
-
-  // Player profile view
-  if (selPlayer) {
-    const batter = batters.find(b => b.Player === selPlayer);
-    const pitcher = pitchers.find(p => p.Pitcher === selPlayer);
-    const isTwoWay = batter && pitcher;
-    return (
-      <div>
-        <button className="back-btn" onClick={() => setSelPlayer(null)}>← Players</button>
-        <PlayerProfile data={data} playerName={selPlayer} teamId={selTeam}
-          batter={batter} pitcher={pitcher} isTwoWay={!!isTwoWay} />
-      </div>
-    );
-  }
-
-  // List view
-  return (
-    <div>
-      <div className="sec-title">Player Profiles</div>
-      <div style={{ marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".8px" }}>Team:</span>
-        <select className="mu-select" style={{ width: "auto", maxWidth: 200 }} value={selTeam} onChange={e => { setSelTeam(e.target.value); setSelPlayer(null); }}>
-          {teams.focal.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-      </div>
-      <div className="tbl-wrap">
-        <table>
-          <thead><tr>
-            <th style={{ textAlign: "left" }}>Player</th>
-            <th>G</th>
-            <th>PA</th>
-            <th>Primary</th>
-            <th>Secondary</th>
-            <th style={{ textAlign: "center" }}>Tier</th>
-          </tr></thead>
-          <tbody>
-            {playerList.map(p => {
-              const cls = p.tier.tier === "ELITE" || p.tier.tier === "ACE" ? "tier-elite" : p.tier.tier === "HIGH" || p.tier.tier === "QUALITY" ? "tier-high" : p.tier.tier === "MODERATE" || p.tier.tier === "AVERAGE" ? "tier-moderate" : p.tier.tier === "LIMITED" ? "tier-limited" : "tier-low";
-              return (
-                <tr key={p.name} onClick={() => setSelPlayer(p.name)} style={{ cursor: "pointer" }}>
-                  <td style={{ fontWeight: 500 }}>
-                    {p.name}
-                    {p.isTwoWay && <span className="two-way-badge">2-WAY</span>}
-                  </td>
-                  <td className="td-r mono">{p.G}</td>
-                  <td className="td-r mono">{p.PA || "—"}</td>
-                  <td className="td-r mono">{p.primary} <span style={{ fontSize: 10, color: "var(--muted)" }}>{p.primaryLabel}</span></td>
-                  <td className="td-r mono">{p.secondary} <span style={{ fontSize: 10, color: "var(--muted)" }}>{p.secondaryLabel}</span></td>
-                  <td style={{ textAlign: "center" }}><span className={`tier-badge ${cls}`}>{p.tier.tier}</span></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-// ─── PLAYER PROFILE ──────────────────────────────────────────────────────────
-function PlayerProfile({ data, playerName, teamId, batter, pitcher, isTwoWay }) {
-  // Recent form — batting
-  const recentBatting = useMemo(() => {
-    if (!batter) return null;
-    const games = data.batting.filter(r => r.Player === playerName && r.Team === teamId)
-      .sort((a, b) => String(b.Game_Date).localeCompare(String(a.Game_Date)));
-    const agg = (rows) => {
-      const a = aggBatting(rows)[0];
-      return a || null;
-    };
-    return { last3: agg(games.slice(0, 3)), last5: agg(games.slice(0, 5)), season: batter };
-  }, [data, playerName, teamId, batter]);
-
-  // Recent form — pitching
-  const recentPitching = useMemo(() => {
-    if (!pitcher) return null;
-    const games = data.pitching.filter(r => r.Pitcher === playerName && r.Team === teamId)
-      .sort((a, b) => String(b.Game_Date).localeCompare(String(a.Game_Date)));
-    const agg = (rows) => {
-      const a = aggPitching(rows)[0];
-      return a || null;
-    };
-    return { last3: agg(games.slice(0, 3)), last5: agg(games.slice(0, 5)), season: pitcher };
-  }, [data, playerName, teamId, pitcher]);
-
-  // Opponent splits — batting
-  const battingSplits = useMemo(() => {
-    if (!batter) return [];
-    const byOpp = {};
-    data.batting.filter(r => r.Player === playerName && r.Team === teamId).forEach(r => {
-      const opp = r.Opponent || "Unknown";
-      if (!byOpp[opp]) byOpp[opp] = [];
-      byOpp[opp].push(r);
-    });
-    return Object.entries(byOpp).map(([opp, rows]) => {
-      const a = aggBatting(rows)[0];
-      return { opp, ...a };
-    }).filter(s => s.PA >= 3).sort((a, b) => b.PA - a.PA);
-  }, [data, playerName, teamId, batter]);
-
-  // Opponent splits — pitching
-  const pitchingSplits = useMemo(() => {
-    if (!pitcher) return [];
-    const byOpp = {};
-    data.pitching.filter(r => r.Pitcher === playerName && r.Team === teamId).forEach(r => {
-      const opp = r.Opponent || "Unknown";
-      if (!byOpp[opp]) byOpp[opp] = [];
-      byOpp[opp].push(r);
-    });
-    return Object.entries(byOpp).map(([opp, rows]) => {
-      const a = aggPitching(rows)[0];
-      return { opp, ...a };
-    }).filter(s => s.Outs >= 3).sort((a, b) => b.Outs - a.Outs);
-  }, [data, playerName, teamId, pitcher]);
-
-  // Game log — batting
-  const batGameLog = useMemo(() => {
-    if (!batter) return [];
-    return data.batting.filter(r => r.Player === playerName && r.Team === teamId)
-      .sort((a, b) => String(b.Game_Date).localeCompare(String(a.Game_Date)))
-      .map(r => ({
-        date: r.Game_ID ? String(r.Game_ID).slice(0, 10) : String(r.Game_Date), opp: r.Opponent,
-        PA: num(r.PA), AB: num(r.AB), H: num(r.H), "2B": num(r["2B"]), "3B": num(r["3B"]),
-        HR: num(r.HR), RBI: num(r.RBI), R: num(r.R), SB: num(r.SB), BB: num(r.BB), K: num(r.K)
-      }));
-  }, [data, playerName, teamId, batter]);
-
-  // Game log — pitching
-  const pitGameLog = useMemo(() => {
-    if (!pitcher) return [];
-    return data.pitching.filter(r => r.Pitcher === playerName && r.Team === teamId)
-      .sort((a, b) => String(b.Game_Date).localeCompare(String(a.Game_Date)))
-      .map(r => ({
-        date: r.Game_ID ? String(r.Game_ID).slice(0, 10) : String(r.Game_Date), opp: r.Opponent,
-        IP: fmtIP(num(r.Outs_Recorded)), BF: num(r.BF), H: num(r.H_Allowed),
-        BB: num(r.BB_Allowed), K: num(r.K), R: num(r.R_Allowed)
-      }));
-  }, [data, playerName, teamId, pitcher]);
-
-  // Batting order context
-  const orderSlot = useMemo(() => {
-    if (!data.roster) return null;
-    const row = data.roster.find(r => r.Team_Code === teamId && r.Player === playerName && r.Order);
-    return row ? num(row.Order) : null;
-  }, [data, playerName, teamId]);
-
-  const batSort = useSort(batGameLog, "date");
-  const pitSort = useSort(pitGameLog, "date");
-
-  return (
-    <div>
-      {/* Header */}
-      <div className="player-header">
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div className="player-header-name">{playerName}</div>
-          {isTwoWay && <span className="two-way-badge">TWO-WAY PLAYER</span>}
-        </div>
-        <div className="player-header-sub">{teamId} · {batter ? batter.G : pitcher ? pitcher.G : 0} games</div>
-        <div className="player-header-stats">
-          {batter && (
-            <>
-              <div className="player-header-stat"><div className="player-header-stat-val">{avg3(batter.AVG)}</div><div className="player-header-stat-lbl">AVG</div></div>
-              <div className="player-header-stat"><div className="player-header-stat-val">{avg3(batter.OBP)}</div><div className="player-header-stat-lbl">OBP</div></div>
-              <div className="player-header-stat"><div className="player-header-stat-val">{avg3(batter.SLG)}</div><div className="player-header-stat-lbl">SLG</div></div>
-              <div className="player-header-stat"><div className="player-header-stat-val">{avg3(batter.OPS)}</div><div className="player-header-stat-lbl">OPS</div></div>
-              <div className="player-header-stat">
-                {(() => { const ht = hitterThreat(batter); const cls = ht.tier === "ELITE" ? "tier-elite" : ht.tier === "HIGH" ? "tier-high" : ht.tier === "MODERATE" ? "tier-moderate" : ht.tier === "LIMITED" ? "tier-limited" : "tier-low"; return <span className={`tier-badge ${cls}`} style={{ marginLeft: 0 }}>{ht.tier}</span>; })()}
-              </div>
-            </>
-          )}
-          {pitcher && (
-            <>
-              <div className="player-header-stat"><div className="player-header-stat-val">{fix2(pitcher.ERA)}</div><div className="player-header-stat-lbl">ERA</div></div>
-              <div className="player-header-stat"><div className="player-header-stat-val">{fix2(pitcher.WHIP)}</div><div className="player-header-stat-lbl">WHIP</div></div>
-              <div className="player-header-stat"><div className="player-header-stat-val">{fix1(clamp(pitcher.KBB, 20))}{pitcher.KBB > 20 ? "+" : ""}</div><div className="player-header-stat-lbl">K/BB</div></div>
-              <div className="player-header-stat">
-                {(() => { const imp = pitcherImpact(pitcher); const cls = imp.tier === "ACE" ? "tier-ace" : imp.tier === "QUALITY" ? "tier-quality" : imp.tier === "AVERAGE" ? "tier-average" : imp.tier === "LIMITED" ? "tier-limited" : "tier-below"; return <span className={`tier-badge ${cls}`} style={{ marginLeft: 0 }}>{imp.emoji} {imp.tier}</span>; })()}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Batting sections */}
-      {batter && (
-        <>
-          {/* Recent Form — Batting */}
-          {recentBatting && (
-            <>
-              <div className="sec-title">Recent Form — Batting</div>
-              <div className="form-cols">
-                {[
-                  { label: "Last 3 Games", d: recentBatting.last3 },
-                  { label: "Last 5 Games", d: recentBatting.last5 },
-                  { label: "Full Season", d: recentBatting.season },
-                ].map(({ label, d }) => (
-                  <div key={label} className="form-col">
-                    <div className="form-col-title">{label}</div>
-                    {d ? (
-                      <>
-                        <div className="form-col-row"><span className="form-col-label">AVG</span><span className="form-col-val">{avg3(d.AVG)}</span></div>
-                        <div className="form-col-row"><span className="form-col-label">OBP</span><span className="form-col-val">{avg3(d.OBP)}</span></div>
-                        <div className="form-col-row"><span className="form-col-label">OPS</span><span className="form-col-val">{avg3(d.OPS)}</span></div>
-                      </>
-                    ) : <div style={{ color: "var(--muted)", fontSize: 12 }}>No data</div>}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* Stat Summary — Batting */}
-          <div className="sec-title">Batting Stats</div>
-          <div className="counting-grid">
-            {[
-              { l: "PA", v: batter.PA }, { l: "AB", v: batter.AB }, { l: "H", v: batter.H },
-              { l: "2B", v: batter["2B"] }, { l: "3B", v: batter["3B"] }, { l: "HR", v: batter.HR },
-              { l: "BB", v: batter.BB }, { l: "HBP", v: batter.HBP }, { l: "K", v: batter.K },
-              { l: "R", v: batter.R }, { l: "RBI", v: batter.RBI }, { l: "SB", v: batter.SB },
-              { l: "CS", v: batter.CS }, { l: "GDP", v: batter.GDP }, { l: "SAC", v: batter.SAC },
-            ].map(({ l, v }) => (
-              <div key={l} className="counting-item">
-                <div className="counting-val">{v}</div>
-                <div className="counting-lbl">{l}</div>
-              </div>
-            ))}
-          </div>
-          <div className="g4" style={{ marginBottom: 18 }}>
-            {[
-              { l: "AVG", v: avg3(batter.AVG) }, { l: "OBP", v: avg3(batter.OBP) },
-              { l: "SLG", v: avg3(batter.SLG) }, { l: "OPS", v: avg3(batter.OPS) },
-              { l: "K%", v: pct(safe(batter.K, batter.PA)) }, { l: "BB%", v: pct(safe(batter.BB, batter.PA)) },
-              { l: "SB%", v: batter.SB + batter.CS > 0 ? pct(safe(batter.SB, batter.SB + batter.CS)) : "—" },
-            ].map(({ l, v }) => (
-              <div key={l} className="stat-card">
-                <div className="stat-card-label">{l}</div>
-                <div className="stat-card-value" style={{ fontSize: 22 }}>{v}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Threat Score Breakdown */}
-          {batter.PA >= 8 && (() => {
-            const ht = hitterThreat(batter);
-            const rbiPerH = batter.H > 0 ? Math.min(batter.RBI / batter.H, 1) : 0;
-            const contact = 1 - safe(batter.K, batter.PA);
-            return (
-              <div className="score-breakdown" style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: ".8px", marginBottom: 8 }}>Threat Score: {ht.score.toFixed(3)} — {ht.tier}</div>
-                {[
-                  { l: "OBP", v: batter.OBP, w: 0.4, color: "var(--green)" },
-                  { l: "SLG", v: batter.SLG, w: 0.3, color: "var(--blue)" },
-                  { l: "RBI/H", v: rbiPerH, w: 0.15, color: "var(--gold)" },
-                  { l: "Contact", v: contact, w: 0.15, color: "var(--navy)" },
-                ].map(({ l, v, w, color }) => (
-                  <div key={l} className="score-bar-wrap">
-                    <div className="score-bar-label">{l} ({(w * 100).toFixed(0)}%)</div>
-                    <div className="score-bar-track">
-                      <div className="score-bar-fill" style={{ width: `${Math.min(v, 1) * 100}%`, background: color }} />
-                    </div>
-                    <div className="score-bar-val">{v.toFixed(3)}</div>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
-
-          {/* Opponent Splits — Batting */}
-          {battingSplits.length > 0 && (
-            <>
-              <div className="sec-title">Opponent Splits — Batting</div>
-              <div className="tbl-wrap" style={{ marginBottom: 18 }}>
-                <table>
-                  <thead><tr>
-                    <th style={{ textAlign: "left" }}>Opponent</th>
-                    <th>PA</th><th>AVG</th><th>OBP</th><th>OPS</th><th>HR</th><th>RBI</th>
-                  </tr></thead>
-                  <tbody>
-                    {battingSplits.map(s => (
-                      <tr key={s.opp}>
-                        <td style={{ fontWeight: 500 }}>{s.opp}</td>
-                        <td className="td-r mono">{s.PA}</td>
-                        <td className="td-r mono">{avg3(s.AVG)}</td>
-                        <td className="td-r mono">{avg3(s.OBP)}</td>
-                        <td className="td-r mono">{avg3(s.OPS)}</td>
-                        <td className="td-r mono">{s.HR}</td>
-                        <td className="td-r mono">{s.RBI}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-
-          {/* Game Log — Batting */}
-          <div className="sec-title">Game Log — Batting</div>
-          <div className="tbl-wrap" style={{ marginBottom: 18 }}>
-            <table>
-              <thead><tr>
-                {[["date","Date",true],["opp","Opp",true],["PA","PA"],["AB","AB"],["H","H"],["2B","2B"],["3B","3B"],["HR","HR"],["RBI","RBI"],["R","R"],["SB","SB"],["BB","BB"],["K","K"]].map(([c,l,left]) => (
-                  <Th key={c} c={c} label={l} s={batSort.col} d={batSort.dir} fn={batSort.toggle} left={!!left} />
-                ))}
-              </tr></thead>
-              <tbody>
-                {batSort.sorted.map((r, i) => (
-                  <tr key={i}>
-                    <td style={{ fontSize: 12 }}>{r.date}</td>
-                    <td style={{ fontWeight: 500, fontSize: 12 }}>{r.opp}</td>
-                    <td className="td-r mono">{r.PA}</td><td className="td-r mono">{r.AB}</td>
-                    <td className="td-r mono">{r.H}</td><td className="td-r mono">{r["2B"]}</td>
-                    <td className="td-r mono">{r["3B"]}</td>
-                    <td className={`td-r mono ${r.HR > 0 ? "c-g" : ""}`}>{r.HR}</td>
-                    <td className="td-r mono">{r.RBI}</td><td className="td-r mono">{r.R}</td>
-                    <td className="td-r mono c-b">{r.SB}</td>
-                    <td className="td-r mono">{r.BB}</td>
-                    <td className={`td-r mono ${r.K >= 2 ? "c-r" : ""}`}>{r.K}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {/* Pitching sections */}
-      {pitcher && (
-        <>
-          {/* Recent Form — Pitching */}
-          {recentPitching && (
-            <>
-              <div className="sec-title">Recent Form — Pitching</div>
-              <div className="form-cols">
-                {[
-                  { label: "Last 3 Games", d: recentPitching.last3 },
-                  { label: "Last 5 Games", d: recentPitching.last5 },
-                  { label: "Full Season", d: recentPitching.season },
-                ].map(({ label, d }) => (
-                  <div key={label} className="form-col">
-                    <div className="form-col-title">{label}</div>
-                    {d ? (
-                      <>
-                        <div className="form-col-row"><span className="form-col-label">ERA</span><span className="form-col-val">{fix2(d.ERA)}</span></div>
-                        <div className="form-col-row"><span className="form-col-label">WHIP</span><span className="form-col-val">{fix2(d.WHIP)}</span></div>
-                      </>
-                    ) : <div style={{ color: "var(--muted)", fontSize: 12 }}>No data</div>}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* Stat Summary — Pitching */}
-          <div className="sec-title">Pitching Stats</div>
-          <div className="counting-grid">
-            {[
-              { l: "IP", v: fmtIP(pitcher.Outs) }, { l: "G", v: pitcher.G }, { l: "BF", v: pitcher.BF },
-              { l: "H", v: pitcher.H }, { l: "BB", v: pitcher.BB }, { l: "K", v: pitcher.K },
-              { l: "R", v: pitcher.R }, { l: "HR", v: pitcher.HR }, { l: "WP", v: pitcher.WP },
-            ].map(({ l, v }) => (
-              <div key={l} className="counting-item">
-                <div className="counting-val">{v}</div>
-                <div className="counting-lbl">{l}</div>
-              </div>
-            ))}
-          </div>
-          <div className="g4" style={{ marginBottom: 14 }}>
-            {[
-              { l: "ERA", v: fix2(pitcher.ERA) }, { l: "WHIP", v: fix2(pitcher.WHIP) },
-              { l: "K/9", v: fix1(pitcher.Outs > 0 ? (pitcher.K / (pitcher.Outs / 3)) * 9 : 0) },
-              { l: "BB/9", v: fix1(pitcher.Outs > 0 ? (pitcher.BB / (pitcher.Outs / 3)) * 9 : 0) },
-              { l: "K/BB", v: fix1(clamp(pitcher.KBB, 20)) + (pitcher.KBB > 20 ? "+" : "") },
-              { l: "K%", v: pct(pitcher.KPct) }, { l: "BB%", v: pct(pitcher.BBPct) },
-            ].map(({ l, v }) => (
-              <div key={l} className="stat-card">
-                <div className="stat-card-label">{l}</div>
-                <div className="stat-card-value" style={{ fontSize: 22 }}>{v}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Hit Type Breakdown */}
-          {pitcher.H > 0 && (() => {
-            const total = pitcher["1B"] + pitcher["2B"] + pitcher["3B"] + pitcher.HR;
-            if (total === 0) return null;
-            const segs = [
-              { l: "1B", v: pitcher["1B"], c: "var(--blue)" },
-              { l: "2B", v: pitcher["2B"], c: "var(--gold)" },
-              { l: "3B", v: pitcher["3B"], c: "var(--amber)" },
-              { l: "HR", v: pitcher.HR, c: "var(--red)" },
-            ].filter(s => s.v > 0);
-            return (
-              <div style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: ".8px", marginBottom: 6 }}>Contact Profile — Hits Allowed</div>
-                <div className="hit-type-bar">
-                  {segs.map(s => (
-                    <div key={s.l} className="hit-type-seg" style={{ width: `${(s.v / total) * 100}%`, background: s.c }}>
-                      {(s.v / total) >= 0.12 && s.l}
-                    </div>
-                  ))}
-                </div>
-                <div className="hit-type-legend">
-                  {segs.map(s => (
-                    <div key={s.l} className="hit-type-legend-item">
-                      <div className="hit-type-legend-dot" style={{ background: s.c }} />
-                      {s.l}: {s.v} ({pct(s.v / total)})
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Role + avg IP */}
-          <div style={{ fontSize: 13, color: "var(--text2)", marginBottom: 14 }}>
-            <span style={{ fontWeight: 700 }}>Role:</span> {pitcherRole(pitcher)} · Avg {fmtIP(Math.round(pitcher.Outs / pitcher.G))} IP per outing
-          </div>
-
-          {/* Impact Score Breakdown */}
-          {pitcher.Outs >= 9 && (() => {
-            const imp = pitcherImpact(pitcher);
-            const IP = pitcher.Outs / 3;
-            const kNorm = Math.min((pitcher.K / IP) * 9 / 15, 1);
-            const controlNorm = Math.max(1 - ((pitcher.BB / IP) * 9) / 10, 0);
-            const eraNorm = Math.max(1 - pitcher.ERA / 12, 0);
-            const whipNorm = Math.max(1 - pitcher.WHIP / 3, 0);
-            return (
-              <div className="score-breakdown" style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: ".8px", marginBottom: 8 }}>Impact Score: {imp.score.toFixed(3)} — {imp.emoji} {imp.tier}</div>
-                {[
-                  { l: "K/9", v: kNorm, w: 0.3, color: "var(--green)" },
-                  { l: "Control", v: controlNorm, w: 0.25, color: "var(--blue)" },
-                  { l: "ERA", v: eraNorm, w: 0.25, color: "var(--gold)" },
-                  { l: "WHIP", v: whipNorm, w: 0.2, color: "var(--navy)" },
-                ].map(({ l, v, w, color }) => (
-                  <div key={l} className="score-bar-wrap">
-                    <div className="score-bar-label">{l} ({(w * 100).toFixed(0)}%)</div>
-                    <div className="score-bar-track">
-                      <div className="score-bar-fill" style={{ width: `${Math.min(v, 1) * 100}%`, background: color }} />
-                    </div>
-                    <div className="score-bar-val">{v.toFixed(3)}</div>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
-
-          {/* Opponent Splits — Pitching */}
-          {pitchingSplits.length > 0 && (
-            <>
-              <div className="sec-title">Opponent Splits — Pitching</div>
-              <div className="tbl-wrap" style={{ marginBottom: 18 }}>
-                <table>
-                  <thead><tr>
-                    <th style={{ textAlign: "left" }}>Opponent</th>
-                    <th>IP</th><th>ERA</th><th>WHIP</th><th>K</th><th>BB</th>
-                  </tr></thead>
-                  <tbody>
-                    {pitchingSplits.map(s => (
-                      <tr key={s.opp}>
-                        <td style={{ fontWeight: 500 }}>{s.opp}</td>
-                        <td className="td-r mono">{fmtIP(s.Outs)}</td>
-                        <td className="td-r mono">{fix2(s.ERA)}</td>
-                        <td className="td-r mono">{fix2(s.WHIP)}</td>
-                        <td className="td-r mono">{s.K}</td>
-                        <td className="td-r mono">{s.BB}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-
-          {/* Game Log — Pitching */}
-          <div className="sec-title">Game Log — Pitching</div>
-          <div className="tbl-wrap" style={{ marginBottom: 18 }}>
-            <table>
-              <thead><tr>
-                {[["date","Date",true],["opp","Opp",true],["IP","IP"],["BF","BF"],["H","H"],["BB","BB"],["K","K"],["R","R"]].map(([c,l,left]) => (
-                  <Th key={c} c={c} label={l} s={pitSort.col} d={pitSort.dir} fn={pitSort.toggle} left={!!left} />
-                ))}
-              </tr></thead>
-              <tbody>
-                {pitSort.sorted.map((r, i) => (
-                  <tr key={i}>
-                    <td style={{ fontSize: 12 }}>{r.date}</td>
-                    <td style={{ fontWeight: 500, fontSize: 12 }}>{r.opp}</td>
-                    <td className="td-r mono">{r.IP}</td><td className="td-r mono">{r.BF}</td>
-                    <td className="td-r mono">{r.H}</td><td className="td-r mono">{r.BB}</td>
-                    <td className={`td-r mono ${r.K >= 5 ? "c-g" : ""}`}>{r.K}</td>
-                    <td className={`td-r mono ${r.R >= 3 ? "c-r" : ""}`}>{r.R}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {/* Batting Order Context */}
-      {orderSlot && (
-        <div style={{ fontSize: 13, color: "var(--text2)", marginTop: 8 }}>
-          Typically bats <strong>{orderSlot}</strong> in the lineup.
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── MATCHUP TAB ──────────────────────────────────────────────────────────────
-function MatchupTab({ data, teams, defaultTeamA, defaultTeamB }) {
-  const [teamA, setTeamA] = useState(defaultTeamA || teams.focal[0] || teams.all[0] || "");
-  const [teamB, setTeamB] = useState(defaultTeamB || teams.all.filter(t => t !== (defaultTeamA || teams.focal[0]))[0] || "");
-  const [ktg, setKtg]     = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr]     = useState(null);
-  const [pitchOpen, setPitchOpen]   = useState(false);
-  const [lineupOpen, setLineupOpen] = useState(false);
-
-  useEffect(() => {
-    if (defaultTeamA && defaultTeamA !== teamA) {
-      setTeamA(defaultTeamA);
-      setKtg(null);
-    }
-  }, [defaultTeamA]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (defaultTeamB && defaultTeamB !== teamB) {
-      setTeamB(defaultTeamB);
-      setKtg(null);
-    }
-  }, [defaultTeamB]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Computed data — always live
-  const sA = useMemo(() => teamA ? teamSummary(data, teamA) : null, [data, teamA]);
-  const sB = useMemo(() => teamB ? teamSummary(data, teamB) : null, [data, teamB]);
-
-  const oppPitchers = useMemo(() =>
-    teamB ? aggPitching(data.pitching.filter(r => r.Team === teamB)).sort((a,b) => b.IP - a.IP) : [],
-    [data, teamB]
-  );
-
-  const oppBatters = useMemo(() =>
-    teamB ? aggBatting(data.batting.filter(r => r.Team === teamB))
-      .filter(r => r.PA >= 5).sort((a,b) => b.OPS - a.OPS) : [],
-    [data, teamB]
-  );
-
-  // Key players — data-driven, both teams
-  const keyBattersA  = useMemo(() => sA ? [...sA.batters].filter(b => b.PA >= 8).sort((a,b) => b.OPS - a.OPS).slice(0, 4) : [], [sA]);
-  const keyPitchersA = useMemo(() => sA ? [...sA.pitchers].filter(p => p.Outs >= 3).sort((a,b) => b.Outs - a.Outs).slice(0, 3) : [], [sA]);
-  const keyBattersB  = useMemo(() => sB ? [...sB.batters].filter(b => b.PA >= 8).sort((a,b) => b.OPS - a.OPS).slice(0, 4) : [], [sB]);
-  const keyPitchersB = useMemo(() => sB ? [...sB.pitchers].filter(p => p.Outs >= 3).sort((a,b) => b.Outs - a.Outs).slice(0, 3) : [], [sB]);
-
-  // Game situation analysis — sample-size-aware thresholds
-  const gameSits = useMemo(() => {
-    if (!oppBatters.length && !oppPitchers.length) return null;
-    const speed = oppBatters
-      .filter(r => r.SB >= 3 && r.PA >= 8 && safe(r.SB, r.PA) >= 0.08)
-      .sort((a,b) => b.SB - a.SB).slice(0, 4);
-    const power = oppBatters
-      .filter(r => r.HR >= 2 || (r.HR >= 1 && r.PA >= 8 && r.SLG >= 0.500))
-      .sort((a,b) => b.HR - a.HR).slice(0, 4);
-    const patient = oppBatters
-      .filter(r => r.PA >= 12 && safe(r.BB, r.PA) >= 0.12)
-      .sort((a,b) => safe(b.BB, b.PA) - safe(a.BB, a.PA)).slice(0, 4);
-    const walkProne = oppPitchers
-      .filter(p => p.BF >= 25 && p.BBPct >= 0.12)
-      .sort((a,b) => b.BBPct - a.BBPct).slice(0, 4);
-    return { speed, power, patient, walkProne };
-  }, [oppBatters, oppPitchers]);
-
-  // Matchup Exploits — auto-generated strategy bullets
-  const exploits = useMemo(() =>
-    (sA && sB) ? matchupExploits(sA, sB, teamA, teamB) : [],
-    [sA, sB, teamA, teamB]
-  );
-
-  const generateKTG = async () => {
-    if (!teamA || !teamB || loading) return;
-    setLoading(true); setErr(null); setKtg(null);
-    try {
-      const system = buildKTGSystem(data, teamA, teamB);
-
-      const chipMsg = (focal, opp) =>
-        `Keys to the Game for ${focal} vs ${opp}. ${focal}'s perspective only.
-Return ONLY this JSON, nothing else:
-{"hitting":["","",""],"pitching":["","",""],"strategy":["",""]}
-HARD RULE: every string must be 8 words or fewer. Format: "[Stat/player] — [action]"
-Examples: "Walsh BB%=14% — draw walks every AB" / "Opp K%=28% — attack zone early"`;
-
-      const parseOne = raw => {
-        const clean = raw.replace(/```json|```/g, "").trim();
-        try { return JSON.parse(clean); }
-        catch {
-          const match = clean.match(/\{[\s\S]*\}/);
-          if (!match) throw new Error(`No JSON found in response`);
-          return JSON.parse(match[0]);
-        }
-      };
-
-      // Two parallel calls — one per team — half the output each
-      const [rawA, rawB] = await Promise.all([
-        callClaude(system, chipMsg(teamA, teamB), 1000),
-        callClaude(system, chipMsg(teamB, teamA), 1000),
-      ]);
-
-      setKtg({ teamA: parseOne(rawA), teamB: parseOne(rawB) });
-    } catch (e) {
-      setErr(`Analysis failed: ${e.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleTeamChange = (which, val) => {
-    if (which === "a") { setTeamA(val); setKtg(null); }
-    else { setTeamB(val); setKtg(null); }
-  };
-
-  return (
-    <div style={{ paddingBottom: 40 }}>
-      {/* selectors */}
-      <div className="mu-selectors" style={{ marginTop: 16 }}>
-        <div className="mu-team-card">
-          <div className="mu-label">Focal team</div>
-          <select className="mu-select" value={teamA} onChange={e => handleTeamChange("a", e.target.value)}>
-            <optgroup label="Focal Teams">
-              {teams.focal.map(t => <option key={t} value={t}>{t}</option>)}
-            </optgroup>
-            <optgroup label="All Teams">
-              {teams.opponents.map(t => <option key={t} value={t}>{t}</option>)}
-            </optgroup>
-          </select>
-        </div>
-        <div className="vs-text">VS</div>
-        <div className="mu-team-card">
-          <div className="mu-label">Opponent</div>
-          <select className="mu-select" value={teamB} onChange={e => handleTeamChange("b", e.target.value)}>
-            {teams.all.filter(t => t !== teamA).map(t => (
-              <option key={t} value={t}>{t}{teams.focal.includes(t) ? " ★" : ""}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* ── INTELLIGENCE CARD: game sits + H2H in one surface ── */}
-      {sA && sB && (
-        <div className="h2h-wrap">
-
-          {/* Game situation indicators — first, always visible */}
-          {gameSits && (gameSits.speed.length > 0 || gameSits.power.length > 0 || gameSits.patient.length > 0 || gameSits.walkProne.length > 0) && (
-            <>
-              <div className="sec-title" style={{ margin: "0 0 12px", fontSize: 9 }}>Game situation indicators — {teamB}</div>
-              <div className="gsit-grid" style={{ marginBottom: 16 }}>
-                {gameSits.speed.length > 0 && (
-                  <div className="gsit-card speed">
-                    <div className="gsit-type">⚡ Speed threats</div>
-                    {gameSits.speed.map(b => (
-                      <div key={b.Player} className="gsit-item">
-                        <span className="name">{b.Player}</span>
-                        <span className="val">{b.SB} SB</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {gameSits.power.length > 0 && (
-                  <div className="gsit-card power">
-                    <div className="gsit-type">💪 Power threats</div>
-                    {gameSits.power.map(b => (
-                      <div key={b.Player} className="gsit-item">
-                        <span className="name">{b.Player}</span>
-                        <span className="val">{b.HR} HR · {avg3(b.SLG)} SLG</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {gameSits.patient.length > 0 && (
-                  <div className="gsit-card patience">
-                    <div className="gsit-type">👁 Patient hitters</div>
-                    {gameSits.patient.map(b => (
-                      <div key={b.Player} className="gsit-item">
-                        <span className="name">{b.Player}</span>
-                        <span className="val">{pct(safe(b.BB, b.PA))} BB%</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {gameSits.walkProne.length > 0 && (
-                  <div className="gsit-card walk-prone">
-                    <div className="gsit-type">📋 Walk-prone pitchers</div>
-                    {gameSits.walkProne.map(p => (
-                      <div key={p.Pitcher} className="gsit-item">
-                        <span className="name">{p.Pitcher}</span>
-                        <span className="val">{pct(p.BBPct)} BB% · {p.BF} BF</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <hr style={{ border: "none", borderTop: "1px solid var(--bd)", margin: "0 0 14px" }} />
-            </>
-          )}
-
-          {/* H2H stat bars */}
-          <div className="h2h-header">
-            <div className="h2h-team-name">{teamA}</div>
-            <div className="h2h-metric-label">head to head</div>
-            <div className="h2h-team-name right">{teamB}</div>
-          </div>
-          {[
-            { label: "ERA",      a: sA.ERA,      b: sB.ERA,      fmt: fix2,  lowerBetter: true  },
-            { label: "WHIP",     a: sA.WHIP,     b: sB.WHIP,     fmt: fix2,  lowerBetter: true  },
-            { label: "K/BB",     a: clamp(sA.KBB,20), b: clamp(sB.KBB,20), fmt: fix1, lowerBetter: false },
-            { label: "BB%",      a: sA.BBPct,    b: sB.BBPct,    fmt: pct,   lowerBetter: true  },
-            { label: "Team AVG", a: sA.teamAVG,  b: sB.teamAVG,  fmt: avg3,  lowerBetter: false },
-            { label: "Team OBP", a: sA.teamOBP,  b: sB.teamOBP,  fmt: avg3,  lowerBetter: false },
-            { label: "Team OPS", a: sA.teamOBP + sA.teamSLG, b: sB.teamOBP + sB.teamSLG, fmt: avg3, lowerBetter: false },
-            { label: "SB",       a: sA.teamSB,   b: sB.teamSB,   fmt: v => v, lowerBetter: false },
-            { label: "HR",       a: sA.teamHR,   b: sB.teamHR,   fmt: v => v, lowerBetter: false },
-          ].map(row => <H2HRow key={row.label} {...row} />)}
-        </div>
-      )}
-
-      {/* ── ACCORDIONS ─────────────────────────────────────────── */}
-      {oppPitchers.length > 0 && (
-        <div style={{ marginTop: 10 }}>
-          <div
-            onClick={() => setPitchOpen(o => !o)}
-            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "var(--s2)", border: "1px solid var(--bd)", borderRadius: pitchOpen ? "var(--radius) var(--radius) 0 0" : "var(--radius)", cursor: "pointer", userSelect: "none" }}>
-            <span style={{ fontSize: 11, fontFamily: "'Nunito Sans'", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".6px" }}>
-              Opponent pitching — {teamB} · {oppPitchers.length} pitchers
-            </span>
-            <span style={{ fontSize: 11, color: "var(--muted)" }}>{pitchOpen ? "▲" : "▼"}</span>
-          </div>
-          {pitchOpen && (
-            <div style={{ border: "1px solid var(--bd)", borderTop: "none", borderRadius: "0 0 var(--radius) var(--radius)", padding: 14, background: "var(--s1)" }}>
-              <div className="pitcher-cards">
-                {oppPitchers.map(p => (
-                  <div key={p.Pitcher} className="pc">
-                    <div className="pc-name">{p.Pitcher}</div>
-                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-                      {p.G} app · {fmtIP(p.Outs)} IP · {p.BF} BF
-                    </div>
-                    <div className="pc-stats">
-                      {[
-                        { v: p.K,  l: "K",    c: p.K >= 8 ? "c-g" : "" },
-                        { v: p.BB, l: "BB",   c: p.BB >= 5 ? "c-r" : "" },
-                        { v: p.Outs > 0 ? fix2(p.ERA)  : "—", l: "ERA",  c: p.Outs > 0 && (p.ERA <= 2.5 ? "c-g" : p.ERA >= 5 ? "c-r" : "") },
-                        { v: p.Outs > 0 ? fix2(p.WHIP) : "—", l: "WHIP", c: p.Outs > 0 && (p.WHIP <= 1.2 ? "c-g" : p.WHIP >= 2 ? "c-r" : "") },
-                        { v: p.Outs > 0 ? fix1(clamp(p.KBB,20))+(p.KBB>20?"+":"") : "—", l: "K/BB", c: p.Outs > 0 && p.KBB >= 2 ? "c-g" : "" },
-                        { v: p.Outs > 0 ? pct(p.BBPct) : "—", l: "BB%",  c: p.Outs > 0 && p.BBPct >= 0.12 ? "c-r" : "" },
-                      ].map(({ v, l, c }) => (
-                        <div key={l} className="pc-stat">
-                          <div className={`pc-stat-val ${c}`}>{v}</div>
-                          <div className="pc-stat-lbl">{l}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {oppBatters.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <div
-            onClick={() => setLineupOpen(o => !o)}
-            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "var(--s2)", border: "1px solid var(--bd)", borderRadius: lineupOpen ? "var(--radius) var(--radius) 0 0" : "var(--radius)", cursor: "pointer", userSelect: "none" }}>
-            <span style={{ fontSize: 11, fontFamily: "'Nunito Sans'", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".6px" }}>
-              Lineup threats — {teamB} · by OPS
-            </span>
-            <span style={{ fontSize: 11, color: "var(--muted)" }}>{lineupOpen ? "▲" : "▼"}</span>
-          </div>
-          {lineupOpen && (
-            <div style={{ border: "1px solid var(--bd)", borderTop: "none", borderRadius: "0 0 var(--radius) var(--radius)", padding: "4px 16px 8px", background: "var(--s1)" }}>
-              {oppBatters.slice(0, 10).map((b, i) => {
-                const isSpeed   = b.SB >= 2;
-                const isPower   = b.HR >= 1;
-                const isPatient = b.PA >= 5 && safe(b.BB, b.PA) >= 0.10;
-                const isKProne  = b.PA >= 5 && safe(b.K, b.PA) >= 0.25;
                 return (
-                  <div key={b.Player} className="threat-row" style={{ opacity: b.PA < 12 ? 0.6 : 1 }}>
-                    <div className="threat-rank">{i + 1}</div>
-                    <div className="threat-name">{b.Player}
-                      {(() => { const ht = hitterThreat(b); if (ht.tier === "LIMITED" || ht.tier === "LOW") return null; const cls = ht.tier === "ELITE" ? "tier-elite" : ht.tier === "HIGH" ? "tier-high" : "tier-moderate"; return <span className={`tier-badge ${cls}`}>{ht.tier}</span>; })()}
+                  <div key={p.Pitcher} className="pc">
+                    <div className="pc-name" onClick={() => onPlayerClick(teamId, p.Pitcher)}>{p.Pitcher}</div>
+                    <div className="pc-role">{role}</div>
+                    <div className="pc-stats">
+                      <div><div className="pc-stat-val">{fmtIP(p.Outs)}</div><div className="pc-stat-lbl">IP</div></div>
+                      <div><div className="pc-stat-val">{fix2(p.ERA)}</div><div className="pc-stat-lbl">ERA</div></div>
+                      <div><div className="pc-stat-val">{fix2(p.WHIP)}</div><div className="pc-stat-lbl">WHIP</div></div>
+                      <div><div className="pc-stat-val">{p.K}</div><div className="pc-stat-lbl">K</div></div>
+                      <div><div className="pc-stat-val">{p.BB}</div><div className="pc-stat-lbl">BB</div></div>
                     </div>
-                    <div className="threat-ops c-a">{avg3(b.OPS)}</div>
-                    <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "'Nunito Sans'", fontWeight: 600, fontVariantNumeric: "tabular-nums", minWidth: 80 }}>
-                      {avg3(b.AVG)} AVG
-                    </div>
-                    <div className="threat-badges">
-                      {isSpeed   && <span className="badge b-blue">⚡ {b.SB} SB</span>}
-                      {isPower   && <span className="badge b-gold">💪 {b.HR} HR</span>}
-                      {isPatient && <span className="badge b-amber">👁 {pct(safe(b.BB,b.PA))} BB</span>}
-                      {isKProne  && <span className="badge b-muted">K {pct(safe(b.K,b.PA))}</span>}
-                      {b.PA < 12 && <span className="badge b-muted">{b.PA} PA</span>}
-                    </div>
+                    {outings.length > 0 && (
+                      <div className="outing-strip-wrap">
+                        <div className="outing-strip">
+                          {outings.map((o, i) => {
+                            const R = num(o.R_Allowed);
+                            const cls = R === 0 ? "outing-0r" : R <= 2 ? "outing-1r" : "outing-3r";
+                            return (
+                              <div key={i} className={`outing-block ${cls}`} title={`${fmtIP(num(o.Outs_Recorded))} IP, ${R}R`}>
+                                {fmtIP(num(o.Outs_Recorded))}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <span className="outing-dir">{"Outings →"}</span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* ── MATCHUP EXPLOITS ─────────────────────────────────── */}
-      {exploits.length > 0 && (
-        <>
-          <div className="sec-title">Matchup Exploits — {teamA} vs {teamB}</div>
-          <div className="exploit-wrap">
-            {exploits.map((e, i) => (
-              <div key={i} className="exploit-item">
-                <span className={`exploit-cat ${e.cat}`}>{e.cat}</span>
-                <span className="exploit-text">{e.text}</span>
-              </div>
-            ))}
           </div>
-        </>
-      )}
+        )}
+      </div>
 
-      {/* ── KEYS TO THE GAME ────────────────────────────────── */}
-      <hr className="sec-divider" />
-      <button className="gen-btn" onClick={generateKTG} disabled={loading || !teamA || !teamB}>
-        {loading && <div className="spinner" />}
-        {loading ? "Analyzing matchup…" : `Generate Keys to the Game — ${teamA} vs ${teamB}`}
-      </button>
-
-      {err && <div style={{ color: "var(--red)", fontSize: 13, marginBottom: 16, padding: "10px 14px", background: "var(--red-d)", borderRadius: 8, border: "1px solid rgba(224,85,85,.25)" }}>{err}</div>}
-
-      <div className="sec-title">Keys to the Game</div>
-      {!ktg && !loading && (
-        <div className="g2" style={{ marginBottom: 16 }}>
-          {[teamA, teamB].map(t => (
-            <div key={t} className="ktg-placeholder">
-              <p>Generate analysis<br />to see keys for {t}</p>
+      {/* Lineup Drawer */}
+      <div className="drawer">
+        <div className="drawer-hdr" onClick={() => toggleDrawer("lineup")}>
+          <span className="drawer-label" style={{ color: "var(--amber)" }}>Lineup</span>
+          <span className={`drawer-toggle ${drawerState.lineup ? "open" : ""}`}>{"▼"}</span>
+        </div>
+        {drawerState.lineup && (
+          <div className="drawer-body amber">
+            <div className="lineup-table">
+              <table>
+                <thead>
+                  <tr>
+                    <Th c="Player" label="Player" s={bCol} d={bDir} fn={bToggle} left />
+                    <Th c="G" label="G" s={bCol} d={bDir} fn={bToggle} />
+                    <Th c="PA" label="PA" s={bCol} d={bDir} fn={bToggle} />
+                    <Th c="AVG" label="AVG" s={bCol} d={bDir} fn={bToggle} />
+                    <Th c="OBP" label="OBP" s={bCol} d={bDir} fn={bToggle} />
+                    <Th c="SLG" label="SLG" s={bCol} d={bDir} fn={bToggle} />
+                    <Th c="OPS" label="OPS" s={bCol} d={bDir} fn={bToggle} />
+                    <Th c="HR" label="HR" s={bCol} d={bDir} fn={bToggle} />
+                    <Th c="SB" label="SB" s={bCol} d={bDir} fn={bToggle} />
+                    <Th c="KPct" label="K%" s={bCol} d={bDir} fn={bToggle} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedBatters.map(b => (
+                    <tr key={b.Player}>
+                      <td className="td-name" onClick={() => onPlayerClick(teamId, b.Player)}>{b.Player}</td>
+                      <td className="td-r">{b.G}</td>
+                      <td className="td-r">{b.PA}</td>
+                      <td className="td-r">{avg3(b.AVG)}</td>
+                      <td className="td-r">{avg3(b.OBP)}</td>
+                      <td className="td-r">{avg3(b.SLG)}</td>
+                      <td className="td-r">{avg3(b.OPS)}</td>
+                      <td className="td-r">{b.HR}</td>
+                      <td className="td-r">{b.SB}</td>
+                      <td className="td-r">{pct(safe(b.K, b.PA))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
-        </div>
-      )}
-      {loading && (
-        <div className="ktg-generating">
-          <div className="spinner" />
-          <span>Building game plan analysis…</span>
-        </div>
-      )}
-      {ktg && (
-        <div className="ktg-grid">
-          {[
-            { key: "teamA", label: teamA, d: ktg.teamA },
-            { key: "teamB", label: teamB, d: ktg.teamB },
-          ].map(({ key, label, d }) => (
-            <div key={key} className="ktg-panel">
-              <div className="ktg-panel-hdr">
-                <span className="ktg-panel-name">{label}</span>
-                <span className="ktg-panel-badge">Keys to Win</span>
-              </div>
-              <div className="ktg-section hit">
-                <div className="ktg-section-hdr">
-                  <span className="ktg-section-icon">🏏</span>
-                  <span className="ktg-section-label">Hitting</span>
-                </div>
-                {(d?.hitting || []).map((b, i) => <div key={i} className="ktg-bullet">{b}</div>)}
-              </div>
-              <div className="ktg-section pit">
-                <div className="ktg-section-hdr">
-                  <span className="ktg-section-icon">⚾</span>
-                  <span className="ktg-section-label">Pitching</span>
-                </div>
-                {(d?.pitching || []).map((b, i) => <div key={i} className="ktg-bullet">{b}</div>)}
-              </div>
-              <div className="ktg-section str">
-                <div className="ktg-section-hdr">
-                  <span className="ktg-section-icon">⚡</span>
-                  <span className="ktg-section-label">Strategy</span>
-                </div>
-                {(d?.strategy || []).map((b, i) => <div key={i} className="ktg-bullet">{b}</div>)}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── KEY PLAYERS ──────────────────────────────────────── */}
-      <div className="sec-title">Key Players</div>
-      <div className="kp-grid">
-        {[
-          { label: teamA, batters: keyBattersA, pitchers: keyPitchersA },
-          { label: teamB, batters: keyBattersB, pitchers: keyPitchersB },
-        ].map(({ label, batters, pitchers }) => (
-          <div key={label} className="kp-panel">
-            <div className="kp-panel-hdr">{label}</div>
-
-            <div className="kp-sub-hdr">🏏 Hitting Leaders — by OPS</div>
-            {batters.length === 0
-              ? <div className="kp-row" style={{ color: "var(--muted)", fontSize: 12 }}>No batters with 8+ PA</div>
-              : batters.map((b, i) => (
-                <div key={b.Player} className="kp-row">
-                  <div className="kp-rank">{i + 1}</div>
-                  <div className="kp-name">{b.Player}
-                    {(() => { const ht = hitterThreat(b); if (ht.tier === "LIMITED" || ht.tier === "LOW") return null; const cls = ht.tier === "ELITE" ? "tier-elite" : ht.tier === "HIGH" ? "tier-high" : "tier-moderate"; return <span className={`tier-badge ${cls}`}>{ht.tier}</span>; })()}
-                  </div>
-                  <div className={`kp-primary ${b.OPS >= 0.9 ? "c-g" : b.OPS >= 0.75 ? "c-a" : ""}`}>{avg3(b.OPS)}</div>
-                  <div className="kp-secondary">{avg3(b.AVG)} AVG</div>
-                  <div className="kp-tertiary">
-                    {b.HR > 0 && <span className="badge b-gold" style={{ marginRight: 3 }}>💪{b.HR}</span>}
-                    {b.SB > 0 && <span className="badge b-blue">⚡{b.SB}</span>}
-                  </div>
-                </div>
-              ))
-            }
-
-            <div className="kp-sub-hdr">⚾ Pitching Leaders — by IP</div>
-            {pitchers.length === 0
-              ? <div className="kp-row" style={{ color: "var(--muted)", fontSize: 12 }}>No pitching data</div>
-              : pitchers.map((p, i) => (
-                <div key={p.Pitcher} className="kp-row">
-                  <div className="kp-rank">{i + 1}</div>
-                  <div className="kp-name">{p.Pitcher}
-                    {(() => { const imp = pitcherImpact(p); if (imp.tier === "LIMITED" || imp.tier === "BELOW AVG") return null; const cls = imp.tier === "ACE" ? "tier-ace" : imp.tier === "QUALITY" ? "tier-quality" : "tier-average"; return <span className={`tier-badge ${cls}`}>{imp.emoji} {imp.tier}</span>; })()}
-                  </div>
-                  <div className={`kp-primary ${p.Outs > 0 && p.ERA <= 2.5 ? "c-g" : p.Outs > 0 && p.ERA >= 5 ? "c-r" : ""}`}>
-                    {p.Outs > 0 ? fix2(p.ERA) : "—"}
-                  </div>
-                  <div className="kp-secondary">{p.Outs > 0 ? fix2(p.WHIP) : "—"} WHIP</div>
-                  <div className="kp-tertiary">{fmtIP(p.Outs)} IP</div>
-                </div>
-              ))
-            }
           </div>
-        ))}
+        )}
+      </div>
+
+      {/* Team Discipline Drawer */}
+      <div className="drawer">
+        <div className="drawer-hdr" onClick={() => toggleDrawer("discipline")}>
+          <span className="drawer-label" style={{ color: "var(--purple)" }}>Team Discipline</span>
+          <span className={`drawer-toggle ${drawerState.discipline ? "open" : ""}`}>{"▼"}</span>
+        </div>
+        {drawerState.discipline && (
+          <div className="drawer-body purple">
+            <div className="discipline-section">
+              <div className="discipline-title">Fielding Errors</div>
+              {targets.length > 0 ? (
+                <table>
+                  <thead>
+                    <tr><th style={{ textAlign: "left" }}>Player</th><th style={{ textAlign: "right" }}>Errors</th><th style={{ textAlign: "right" }}>Games</th></tr>
+                  </thead>
+                  <tbody>
+                    {targets.map(t => (
+                      <tr key={t.Player}><td className="td-name">{t.Player}</td><td className="td-r">{t.Errors}</td><td className="td-r">{gamesScouted}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : <div style={{ fontSize: 13, color: "var(--muted)" }}>No errors recorded</div>}
+            </div>
+
+            <div className="discipline-section">
+              <div className="discipline-title">Battery</div>
+              {batteryData.length > 0 ? (
+                <table>
+                  <thead>
+                    <tr><th style={{ textAlign: "left" }}>Pitcher</th><th style={{ textAlign: "right" }}>WP</th><th style={{ textAlign: "right" }}>WP/G</th></tr>
+                  </thead>
+                  <tbody>
+                    {batteryData.map(b => (
+                      <tr key={b.Pitcher}><td className="td-name">{b.Pitcher}</td><td className="td-r">{b.WP}</td><td className="td-r">{fix1(b.WPG)}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : <div style={{ fontSize: 13, color: "var(--muted)" }}>No wild pitches recorded</div>}
+            </div>
+
+            <div className="discipline-section">
+              <div className="discipline-title">Baserunning</div>
+              <div style={{ display: "flex", gap: 16, fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                <span>SB: <span className="mono">{brData.SB}</span></span>
+                <span>CS: <span className="mono">{brData.CS}</span></span>
+                <span>SB%: <span className="mono">{brData.SB + brData.CS > 0 ? pct(brData.SBPct) : "—"}</span></span>
+              </div>
+              <div className="sb-bar-wrap">
+                <div className="sb-bar">
+                  <div className="sb-bar-fill" style={{ width: `${brData.SBPct * 100}%` }} />
+                </div>
+              </div>
+            </div>
+
+            <div className="discipline-section">
+              <div className="discipline-title">Situational Hitting</div>
+              <div style={{ display: "flex", gap: 16, fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                <span>SAC: <span className="mono">{sitData.SAC}</span></span>
+                <span>GDP: <span className="mono">{sitData.GDP}</span></span>
+                <span>GDP/G: <span className="mono">{fix1(sitData.GDPG)}</span></span>
+              </div>
+              {sitData.total > 0 && (
+                <div className="split-bar-wrap">
+                  <span style={{ fontSize: 10, color: "var(--blue)", fontWeight: 700 }}>SAC</span>
+                  <div className="split-bar">
+                    <div className="split-sac" style={{ width: `${(sitData.SAC / sitData.total) * 100}%` }} />
+                    <div className="split-gdp" style={{ width: `${(sitData.GDP / sitData.total) * 100}%` }} />
+                  </div>
+                  <span style={{ fontSize: 10, color: "var(--red)", fontWeight: 700 }}>GDP</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ─── CHAT TAB ─────────────────────────────────────────────────────────────────
-function ChatTab({ data }) {
+function PlayerIntelligence({ data, playerName, teamId, onBack }) {
+  const [filterRange, setFilterRange] = useState("season");
+
+  const hasBatting = data.batting.some(r => r.Player === playerName && r.Team === teamId);
+  const hasPitching = data.pitching.some(r => r.Pitcher === playerName && r.Team === teamId);
+
+  const battingRows = useMemo(() =>
+    data.batting.filter(r => r.Player === playerName && r.Team === teamId)
+      .sort((a, b) => String(b.Game_Date).localeCompare(String(a.Game_Date))),
+    [data, playerName, teamId]);
+
+  const pitchingRows = useMemo(() =>
+    data.pitching.filter(r => r.Pitcher === playerName && r.Team === teamId)
+      .sort((a, b) => String(b.Game_Date).localeCompare(String(a.Game_Date))),
+    [data, playerName, teamId]);
+
+  const filterSlice = rows => {
+    if (filterRange === "last10") return rows.slice(0, 10);
+    if (filterRange === "last5") return rows.slice(0, 5);
+    return rows;
+  };
+
+  const filteredBatting = filterSlice(battingRows);
+  const filteredPitching = filterSlice(pitchingRows);
+
+  const battingAgg = useMemo(() => hasBatting ? aggBatting(filteredBatting)[0] : null, [filteredBatting, hasBatting]);
+  const pitchingAgg = useMemo(() => hasPitching ? aggPitching(filteredPitching)[0] : null, [filteredPitching, hasPitching]);
+
+  const isPitcher = hasPitching && (!hasBatting || pitchingRows.length >= battingRows.length);
+
+  const { sorted: sortedBattingLog, col: bCol, dir: bDir, toggle: bToggle } = useSort(filteredBatting, "Game_Date");
+  const { sorted: sortedPitchingLog, col: pCol, dir: pDir, toggle: pToggle } = useSort(filteredPitching, "Game_Date");
+
+  const role = isPitcher && pitchingAgg ? pitcherRole(pitchingAgg) : "Batter";
+
+  const fmtDate = d => {
+    const s = String(d);
+    // Handle YYYY-MM-DD format
+    if (s.length >= 10 && s.includes("-")) return s.slice(5, 7) + "/" + s.slice(8, 10);
+    // Handle Excel serial number
+    const n = Number(d);
+    if (n > 40000 && n < 60000) {
+      const epoch = new Date(1899, 11, 30);
+      const dt = new Date(epoch.getTime() + n * 86400000);
+      return String(dt.getMonth() + 1).padStart(2, "0") + "/" + String(dt.getDate()).padStart(2, "0");
+    }
+    return s;
+  };
+
+  return (
+    <div>
+      <button className="back-btn" onClick={onBack}>{"← Back to "}{teamId}</button>
+
+      <div className="pi-header">
+        <div className="pi-name">{playerName}</div>
+        <div className="pi-team">{teamId}</div>
+        <div className="pi-role">{role}</div>
+      </div>
+
+      <div className="pi-summary">
+        {isPitcher && pitchingAgg ? (
+          <>
+            <div className="pi-sum-item"><div className="pi-sum-val">{fmtIP(pitchingAgg.Outs)}</div><div className="pi-sum-lbl">IP</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{fix2(pitchingAgg.ERA)}</div><div className="pi-sum-lbl">ERA</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{fix2(pitchingAgg.WHIP)}</div><div className="pi-sum-lbl">WHIP</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{pitchingAgg.K}</div><div className="pi-sum-lbl">K</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{pitchingAgg.BB}</div><div className="pi-sum-lbl">BB</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{fix1(pitchingAgg.Outs > 0 ? (pitchingAgg.K / (pitchingAgg.Outs / 3)) * 9 : 0)}</div><div className="pi-sum-lbl">K/9</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{pct(pitchingAgg.BBPct)}</div><div className="pi-sum-lbl">BB%</div></div>
+          </>
+        ) : battingAgg ? (
+          <>
+            <div className="pi-sum-item"><div className="pi-sum-val">{battingAgg.G}</div><div className="pi-sum-lbl">G</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{battingAgg.PA}</div><div className="pi-sum-lbl">PA</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{avg3(battingAgg.AVG)}</div><div className="pi-sum-lbl">AVG</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{avg3(battingAgg.OBP)}</div><div className="pi-sum-lbl">OBP</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{avg3(battingAgg.SLG)}</div><div className="pi-sum-lbl">SLG</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{avg3(battingAgg.OPS)}</div><div className="pi-sum-lbl">OPS</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{battingAgg.HR}</div><div className="pi-sum-lbl">HR</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{battingAgg.SB}</div><div className="pi-sum-lbl">SB</div></div>
+            <div className="pi-sum-item"><div className="pi-sum-val">{pct(safe(battingAgg.K, battingAgg.PA))}</div><div className="pi-sum-lbl">K%</div></div>
+          </>
+        ) : null}
+      </div>
+
+      <div className="pi-filters">
+        {["season", "last10", "last5"].map(f => (
+          <button key={f} className={`pi-filter ${filterRange === f ? "on" : ""}`} onClick={() => setFilterRange(f)}>
+            {f === "season" ? "Season" : f === "last10" ? "Last 10" : "Last 5"}
+          </button>
+        ))}
+      </div>
+
+      {isPitcher ? (
+        <div className="tbl-wrap pi-table">
+          <table>
+            <thead>
+              <tr>
+                <Th c="Game_Date" label="Date" s={pCol} d={pDir} fn={pToggle} left />
+                <Th c="Opponent" label="Opp" s={pCol} d={pDir} fn={pToggle} left />
+                <Th c="Outs_Recorded" label="IP" s={pCol} d={pDir} fn={pToggle} />
+                <Th c="R_Allowed" label="R" s={pCol} d={pDir} fn={pToggle} />
+                <Th c="H_Allowed" label="H" s={pCol} d={pDir} fn={pToggle} />
+                <Th c="BB_Allowed" label="BB" s={pCol} d={pDir} fn={pToggle} />
+                <Th c="K" label="K" s={pCol} d={pDir} fn={pToggle} />
+              </tr>
+            </thead>
+            <tbody>
+              {sortedPitchingLog.map((r, i) => (
+                <tr key={i}>
+                  <td className="td-name">{fmtDate(r.Game_Date)}</td>
+                  <td className="td-name">{r.Opponent}</td>
+                  <td className="td-r">{fmtIP(num(r.Outs_Recorded))}</td>
+                  <td className="td-r">{num(r.R_Allowed)}</td>
+                  <td className="td-r">{num(r.H_Allowed)}</td>
+                  <td className="td-r">{num(r.BB_Allowed)}</td>
+                  <td className="td-r">{num(r.K)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : hasBatting ? (
+        <div className="tbl-wrap pi-table">
+          <table>
+            <thead>
+              <tr>
+                <Th c="Game_Date" label="Date" s={bCol} d={bDir} fn={bToggle} left />
+                <Th c="Opponent" label="Opp" s={bCol} d={bDir} fn={bToggle} left />
+                <Th c="PA" label="PA" s={bCol} d={bDir} fn={bToggle} />
+                <Th c="AB" label="AB" s={bCol} d={bDir} fn={bToggle} />
+                <Th c="H" label="H" s={bCol} d={bDir} fn={bToggle} />
+                <Th c="BB" label="BB" s={bCol} d={bDir} fn={bToggle} />
+                <Th c="K" label="K" s={bCol} d={bDir} fn={bToggle} />
+                <Th c="HR" label="HR" s={bCol} d={bDir} fn={bToggle} />
+                <Th c="RBI" label="RBI" s={bCol} d={bDir} fn={bToggle} />
+                <Th c="SB" label="SB" s={bCol} d={bDir} fn={bToggle} />
+                <Th c="CS" label="CS" s={bCol} d={bDir} fn={bToggle} />
+              </tr>
+            </thead>
+            <tbody>
+              {sortedBattingLog.map((r, i) => (
+                <tr key={i}>
+                  <td className="td-name">{fmtDate(r.Game_Date)}</td>
+                  <td className="td-name">{r.Opponent}</td>
+                  <td className="td-r">{num(r.PA)}</td>
+                  <td className="td-r">{num(r.AB)}</td>
+                  <td className="td-r">{num(r.H)}</td>
+                  <td className="td-r">{num(r.BB)}</td>
+                  <td className="td-r">{num(r.K)}</td>
+                  <td className="td-r">{num(r.HR)}</td>
+                  <td className="td-r">{num(r.RBI)}</td>
+                  <td className="td-r">{num(r.SB)}</td>
+                  <td className="td-r">{num(r.CS)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TeamsTab({ data, teams, teamsState, selectedTeam, selectedPlayer, drawerState, setDrawerState, navigateToTeam, navigateToPlayer, navigateBack }) {
+  if (teamsState === 3 && selectedPlayer && selectedTeam) {
+    return (
+      <PlayerIntelligence
+        data={data}
+        playerName={selectedPlayer}
+        teamId={selectedTeam}
+        onBack={() => navigateBack(2)}
+      />
+    );
+  }
+
+  if (teamsState === 2 && selectedTeam) {
+    return (
+      <TeamBriefing
+        data={data}
+        teamId={selectedTeam}
+        drawerState={drawerState}
+        setDrawerState={setDrawerState}
+        onPlayerClick={(tid, name) => navigateToPlayer(tid, name)}
+        onBack={() => navigateBack(1)}
+      />
+    );
+  }
+
+  return (
+    <TeamsCardGrid
+      data={data}
+      teams={teams}
+      onTeamClick={tid => navigateToTeam(tid)}
+    />
+  );
+}
+
+// ─── ASK TAB ─────────────────────────────────────────────────────────────────
+
+function AskTab({ data }) {
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -2773,7 +1374,8 @@ function ChatTab({ data }) {
       });
       const d = await res.json();
       if (d.error) throw new Error(d.error.message);
-      setMsgs(prev => [...prev, { role: "ai", text: d.content?.find(b => b.type === "text")?.text || "No response." }]);
+      const reply = d.content?.find(b => b.type === "text")?.text || "No response.";
+      setMsgs(prev => [...prev, { role: "ai", text: reply }]);
     } catch (e) {
       setMsgs(prev => [...prev, { role: "ai", text: `Error: ${e.message}` }]);
     } finally {
@@ -2783,35 +1385,35 @@ function ChatTab({ data }) {
   };
 
   return (
-    <div className="chat-wrap" style={{ marginTop: 16 }}>
-      <div className="chat-msgs">
+    <div className="ask-wrap" style={{ marginTop: 16 }}>
+      <div className="ask-msgs">
         {msgs.length === 0 ? (
-          <div className="chat-empty">
+          <div className="ask-empty">
             <h3>Scout Assistant</h3>
-            <p>Ask anything — any team, any player, any stat across the full repository.</p>
-            <div className="suggestions">
-              {SUGS.map(s => <button key={s} className="sug" onClick={() => send(s)}>{s}</button>)}
+            <p>{"Ask anything \u2014 any team, any player, any stat across the full repository."}</p>
+            <div className="ask-sugs">
+              {SUGS.map(s => <button key={s} className="ask-sug" onClick={() => send(s)}>{s}</button>)}
             </div>
           </div>
         ) : msgs.map((m, i) => (
-          <div key={i} className={`msg ${m.role}`}>
-            <div className="msg-av">{m.role === "user" ? "you" : "AI"}</div>
-            <div className="msg-bbl">{m.text}</div>
+          <div key={i} className={`ask-msg ${m.role === "user" ? "user" : "ai"}`}>
+            <div className="ask-av">{m.role === "user" ? "you" : "AI"}</div>
+            <div className="ask-bbl">{m.text}</div>
           </div>
         ))}
         {busy && (
-          <div className="msg ai">
-            <div className="msg-av">AI</div>
-            <div className="msg-bbl"><div className="dots"><div className="dot"/><div className="dot"/><div className="dot"/></div></div>
+          <div className="ask-msg ai">
+            <div className="ask-av">AI</div>
+            <div className="ask-bbl"><div className="ask-dots"><div className="ask-dot"/><div className="ask-dot"/><div className="ask-dot"/></div></div>
           </div>
         )}
         <div ref={endRef} />
       </div>
-      <div className="chat-bar">
-        <input ref={inpRef} className="chat-inp" placeholder="Ask about any team, player, or stat…"
+      <div className="ask-bar">
+        <input ref={inpRef} className="ask-inp" placeholder="Ask about any team, player, or stat..."
           value={input} onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()} disabled={busy} />
-        <button className="send-btn" onClick={() => send()} disabled={busy || !input.trim()}>Send</button>
+        <button className="ask-send" onClick={() => send()} disabled={busy || !input.trim()}>Send</button>
       </div>
     </div>
   );
@@ -2819,16 +1421,12 @@ function ChatTab({ data }) {
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [data,     setData]     = useState(null);
-  const [loadErr,  setLoadErr]  = useState("");
-  const [tab,      setTab]      = useState("League");
-  const [focalTeam, setFocalTeam] = useState("");
-  const [drillTeam, setDrillTeam] = useState(null);   // League drill-down
-  const [matchupForTeam, setMatchupForTeam] = useState(null); // cross-nav
-  const [teamsViewTeam, setTeamsViewTeam] = useState(null);       // Teams tab drill-down
-  const [playersViewPlayer, setPlayersViewPlayer] = useState(null); // Players tab drill-down
-  const [playersNavTeam, setPlayersNavTeam] = useState(null);     // cross-nav from Teams → Players
-  const [playersNavPlayer, setPlayersNavPlayer] = useState(null); // cross-nav from Teams → Players
+  const [data, setData] = useState(null);
+  const [tab, setTab] = useState("League");
+  const [teamsState, setTeamsState] = useState(1);
+  const [teamsSelectedTeam, setTeamsSelectedTeam] = useState(null);
+  const [teamsSelectedPlayer, setTeamsSelectedPlayer] = useState(null);
+  const [teamsDrawerState, setTeamsDrawerState] = useState({ pitching: true, lineup: false, discipline: false });
 
   const teams = useMemo(() => data ? classifyTeams(data) : { focal: [], opponents: [], all: [] }, [data]);
 
@@ -2836,44 +1434,44 @@ export default function App() {
     fetch("/repository.json")
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(json => {
-        const parsed = parseData(json);
-        setData(parsed);
-        const t = classifyTeams(parsed);
-        setFocalTeam(t.focal.includes("RVRH") ? "RVRH" : t.focal[0] || "");
+        setData(parseData(json));
       })
-      .catch(e => setLoadErr(e.message));
+      .catch(err => console.error("Failed to load data:", err));
   }, []);
 
-  // Cross-tab navigation: from team profile → matchup
-  const goToMatchup = useCallback(opponentId => {
-    setMatchupForTeam(opponentId);
-    setTab("Matchup");
+  const navigateToTeam = useCallback(teamId => {
+    setTab("Teams");
+    setTeamsState(2);
+    setTeamsSelectedTeam(teamId);
+    setTeamsSelectedPlayer(null);
   }, []);
 
-  // Cross-tab navigation: from team profile → player profile
-  const goToPlayer = useCallback((teamId, playerName) => {
-    setPlayersNavTeam(teamId);
-    setPlayersNavPlayer(playerName);
-    setTab("Players");
+  const navigateToPlayer = useCallback((teamId, playerName) => {
+    setTeamsSelectedTeam(teamId);
+    setTeamsSelectedPlayer(playerName);
+    setTeamsState(3);
   }, []);
 
-  // When we switch to Matchup via goToMatchup, pass default team B
-  const matchupDefaultB = tab === "Matchup" ? matchupForTeam : null;
+  const navigateBack = useCallback(toState => {
+    if (toState === 1) {
+      setTeamsState(1);
+      setTeamsSelectedTeam(null);
+      setTeamsSelectedPlayer(null);
+      setTeamsDrawerState({ pitching: true, lineup: false, discipline: false });
+    } else if (toState === 2) {
+      setTeamsState(2);
+      setTeamsSelectedPlayer(null);
+    }
+  }, []);
 
-  // Loading screen
   if (!data) return (
     <>
       <style>{CSS}</style>
-      <div className="app" style={{ background: "var(--bg)" }}>
-        <div className="upload-wrap" style={{ textAlign: "center" }}>
-          <div style={{ fontFamily: "'Nunito Sans'", fontWeight: 800, fontSize: 22, letterSpacing: 1, color: "var(--navy)", marginBottom: 4 }}>
-            Hawks Scouting
-          </div>
-          {loadErr
-            ? <div style={{ fontSize: 13, color: "var(--red)", marginTop: 24 }}>Failed to load data: {loadErr}</div>
-            : <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 24 }}>Loading scouting data…</div>
-          }
+      <div className="app">
+        <div className="topbar">
+          <span className="brand">HAWKS <span>Scouting</span></span>
         </div>
+        <div className="loading-wrap"><p>{"Loading scouting data..."}</p></div>
       </div>
     </>
   );
@@ -2884,44 +1482,39 @@ export default function App() {
       <div className="app">
         <div className="topbar">
           <span className="brand">HAWKS <span>Scouting</span></span>
-          {teams.focal.length > 0 && (
-            <>
-              <span style={{ fontSize: 11, color: "var(--muted)" }}>focal team:</span>
-              <select className="focal-select" value={focalTeam} onChange={e => { setFocalTeam(e.target.value); setDrillTeam(null); }}>
-                {teams.focal.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </>
-          )}
           <span className="spacer" />
         </div>
 
         <div className="tabs">
-          {["League", "Matchup", "Teams", "Players", "Chat"].map(t => (
+          {["League", "Teams", "Ask"].map(t => (
             <div key={t} className={`tab ${tab === t ? "on" : ""}`}
-              onClick={() => { setTab(t); if (t !== "League") setDrillTeam(null); if (t !== "Teams") setTeamsViewTeam(null); if (t !== "Players") { setPlayersViewPlayer(null); setPlayersNavTeam(null); setPlayersNavPlayer(null); } }}>
+              onClick={() => {
+                setTab(t);
+                if (t === "Teams") { setTeamsState(1); setTeamsSelectedTeam(null); setTeamsSelectedPlayer(null); }
+              }}>
               {t}
             </div>
           ))}
         </div>
 
         <div className="main">
-          {tab === "League" && !drillTeam && (
-            <LeagueTab data={data} teams={teams}
-              onTeamClick={id => setDrillTeam(id)} />
+          {tab === "League" && (
+            <LeagueTab data={data} teams={teams} onTeamClick={navigateToTeam} />
           )}
-          {tab === "League" && drillTeam && (
-            <TeamProfile data={data} teamId={drillTeam} teams={teams}
-              onBack={() => setDrillTeam(null)}
-              onMatchup={id => goToMatchup(id)} />
+          {tab === "Teams" && (
+            <TeamsTab
+              data={data} teams={teams}
+              teamsState={teamsState}
+              selectedTeam={teamsSelectedTeam}
+              selectedPlayer={teamsSelectedPlayer}
+              drawerState={teamsDrawerState}
+              setDrawerState={setTeamsDrawerState}
+              navigateToTeam={tid => { setTeamsSelectedTeam(tid); setTeamsState(2); }}
+              navigateToPlayer={navigateToPlayer}
+              navigateBack={navigateBack}
+            />
           )}
-          {tab === "Matchup" && (
-            <MatchupTab data={data} teams={teams}
-              defaultTeamA={focalTeam}
-              defaultTeamB={matchupDefaultB} />
-          )}
-          {tab === "Teams" && <TeamsTab data={data} teams={teams} focalTeam={focalTeam} onPlayerClick={goToPlayer} />}
-          {tab === "Players" && <PlayersTab data={data} teams={teams} focalTeam={focalTeam} navTeam={playersNavTeam} navPlayer={playersNavPlayer} />}
-          {tab === "Chat" && <ChatTab data={data} />}
+          {tab === "Ask" && <AskTab data={data} />}
         </div>
       </div>
     </>
