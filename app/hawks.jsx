@@ -671,22 +671,27 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
         {(() => {
           // Smart label placement — offset away from neighboring dots
           function getLabelOffset(team, allTeams) {
-            const COLLISION_RADIUS = 0.040;
+            const COLLISION_RADIUS_X = 0.050;
+            const COLLISION_RADIUS_Y = 2.0;
             const neighbors = allTeams.filter(t =>
               t.id !== team.id &&
-              Math.abs(t.ops - team.ops) < COLLISION_RADIUS &&
-              Math.abs(t.era - team.era) < 1.5
+              Math.abs(t.ops - team.ops) < COLLISION_RADIUS_X &&
+              Math.abs(t.era - team.era) < COLLISION_RADIUS_Y
             );
-            let dx = 14, dy = 4, anchor = "start";
-            if (neighbors.length > 0) {
-              const cx = neighbors.reduce((s, t) => s + t.ops, 0) / neighbors.length;
-              const cy = neighbors.reduce((s, t) => s + t.era, 0) / neighbors.length;
-              if (team.ops >= cx) { dx = 14;  anchor = "start"; }
-              else                { dx = -14; anchor = "end"; }
-              if (team.era >= cy) { dy = 16; }
-              else                { dy = -8; }
+            if (neighbors.length === 0) {
+              return { dx: 14, dy: 4, anchor: "start" };
             }
-            return { dx, dy, anchor };
+            // Sort cluster by OPS then ERA for stable ordering
+            const cluster = [...neighbors, team].sort((a, b) =>
+              a.ops !== b.ops ? a.ops - b.ops : a.era - b.era
+            );
+            const rank = cluster.findIndex(t => t.id === team.id);
+            // Alternate left/right, stagger vertically by rank
+            if (rank % 2 === 0) {
+              return { dx: 14,  dy: -6 + rank * 14, anchor: "start" };
+            } else {
+              return { dx: -14, dy: -6 + rank * 14, anchor: "end" };
+            }
           }
 
           return plotTeams.map(t => {
