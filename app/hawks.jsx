@@ -667,29 +667,53 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
         ))}
         <text x={14} y={MT + (SVG_H - MT - MB) / 2} textAnchor="middle" fontSize={13} fontWeight={700} fill="#0D2240" fontFamily="Nunito Sans, sans-serif" transform={`rotate(-90, 14, ${MT + (SVG_H - MT - MB) / 2})`}>ERA</text>
 
-        {/* Dots */}
-        {plotTeams.map(t => {
-          const cx = toX(t.ops), cy = toY(t.era);
-          const isRVRH = t.id === "RVRH";
-          const tier = threatTierUI(t.score);
-          const dotFill = isRVRH ? "#001E50" : tier.bg;
-          return (
-            <g key={t.id} onClick={() => onTeamClick(t.id)} style={{ cursor: "pointer" }}>
-              <circle cx={cx} cy={cy} r={10} fill={dotFill}
-                stroke={isRVRH ? "#D4900A" : "none"} strokeWidth={isRVRH ? 2.5 : 0}
-                opacity={0.92} />
-              {!isRVRH && (
-                <text x={cx + 14} y={cy + 4} fontSize={10} fontWeight={600} fill="#3A5070" fontFamily="Nunito Sans, sans-serif">{t.id}</text>
-              )}
-              {isRVRH && (
-                <>
-                  <line x1={cx + 12} y1={cy} x2={cx + 22} y2={cy - 14} stroke="#A8BDD8" strokeWidth="1" />
-                  <text x={cx + 24} y={cy - 12} fontSize={12} fontWeight={800} fill="#001E50" fontFamily="Nunito Sans, sans-serif">{`River Hill \u00b7 ${rvrh.W}\u2013${rvrh.L}`}</text>
-                </>
-              )}
-            </g>
-          );
-        })}
+        {/* Dots and labels */}
+        {(() => {
+          // Smart label placement — offset away from neighboring dots
+          function getLabelOffset(team, allTeams) {
+            const COLLISION_RADIUS = 0.040;
+            const neighbors = allTeams.filter(t =>
+              t.id !== team.id &&
+              Math.abs(t.ops - team.ops) < COLLISION_RADIUS &&
+              Math.abs(t.era - team.era) < 1.5
+            );
+            let dx = 14, dy = 4, anchor = "start";
+            if (neighbors.length > 0) {
+              const cx = neighbors.reduce((s, t) => s + t.ops, 0) / neighbors.length;
+              const cy = neighbors.reduce((s, t) => s + t.era, 0) / neighbors.length;
+              if (team.ops >= cx) { dx = 14;  anchor = "start"; }
+              else                { dx = -14; anchor = "end"; }
+              if (team.era >= cy) { dy = 16; }
+              else                { dy = -8; }
+            }
+            return { dx, dy, anchor };
+          }
+
+          return plotTeams.map(t => {
+            const cx = toX(t.ops), cy = toY(t.era);
+            const isRVRH = t.id === "RVRH";
+            const tier = threatTierUI(t.score);
+            const dotFill = isRVRH ? "#001E50" : tier.bg;
+            const { dx, dy, anchor } = getLabelOffset(t, plotTeams);
+            return (
+              <g key={t.id} onClick={() => onTeamClick(t.id)} style={{ cursor: "pointer" }}>
+                <circle cx={cx} cy={cy} r={10} fill={dotFill}
+                  stroke={isRVRH ? "#D4900A" : "none"} strokeWidth={isRVRH ? 2.5 : 0}
+                  opacity={0.92} />
+                {/* Team code label — all dots get one */}
+                <text x={cx + dx} y={cy + dy} textAnchor={anchor}
+                  fontSize={11} fontWeight={600} fill="#0D2240" fontFamily="Nunito Sans, sans-serif">{t.id}</text>
+                {/* RVRH also gets the callout annotation */}
+                {isRVRH && (
+                  <>
+                    <line x1={cx + 12} y1={cy} x2={cx + 22} y2={cy - 14} stroke="#A8BDD8" strokeWidth="1" />
+                    <text x={cx + 24} y={cy - 12} fontSize={12} fontWeight={800} fill="#001E50" fontFamily="Nunito Sans, sans-serif">{`River Hill \u00b7 ${rvrh.W}\u2013${rvrh.L}`}</text>
+                  </>
+                )}
+              </g>
+            );
+          });
+        })()}
       </svg>
       <div className="scatter-legend">
         <div className="scatter-legend-item"><div className="scatter-legend-dot" style={{ background: "#B83030" }} /> THREAT</div>
