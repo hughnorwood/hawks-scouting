@@ -789,33 +789,35 @@ function StandingsTable({ data, teams, onTeamClick }) {
 
 function heatCell(value, min, max, lowerIsBetter) {
   if (!isFinite(value) || max === min) {
-    return { bg: "#F3F6FB", color: "#0D2240" };
+    return { bg: "#F3F6FB", color: "#3A5070" };
   }
   const t = (value - min) / (max - min);
   const q = lowerIsBetter ? 1 - t : t; // 1.0 = best, 0.0 = worst
 
   let r, g, b;
   if (q >= 0.5) {
+    // amber → red (mid to best)
     const s = (q - 0.5) * 2;
-    r = Math.round(220 - s * 161);  // 220 → 59
-    g = Math.round(220 - s * 111);  // 220 → 109
-    b = Math.round(220 - s * 203);  // 220 → 17
+    r = 184;
+    g = Math.round(112 - s * 64);   // 112 → 48
+    b = Math.round(16  + s * 0);    // stays ~16
   } else {
+    // gray → amber (worst to mid)
     const s = q * 2;
-    r = Math.round(184 - s * (184 - 220));  // 184 → 220
-    g = Math.round(48  + s * 172);           // 48  → 220
-    b = Math.round(48  + s * 172);           // 48  → 220
+    r = Math.round(221 - s * (221 - 184));  // 221 → 184
+    g = Math.round(218 - s * (218 - 112));  // 218 → 112
+    b = Math.round(213 - s * (213 - 16));   // 213 → 16
   }
 
   const bg = `rgba(${r}, ${g}, ${b}, 0.55)`;
-  const color = (q > 0.75 || q < 0.25) ? "#ffffff" : "#0D2240";
+  const color = q > 0.65 ? "#ffffff" : "#0D2240";
   return { bg, color };
 }
 
 function LeagueHeatMap({ data, teams, onTeamClick }) {
   const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC'];
 
-  const heatData = useMemo(() => {
+  const heatRows = useMemo(() => {
     const rows = FOCAL_TEAMS.map(id => {
       const s = teamSummary(data, id);
       const batters = aggBatting(data.batting.filter(r => r.Team === id));
@@ -825,42 +827,81 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
       const errG = s.errors / (s.G || 1);
       return { id, era: s.ERA, ops: s.teamOBP + s.teamSLG, errG, sbPct };
     });
+    return rows;
+  }, [data]);
 
-    rows.sort((a, b) => a.id.localeCompare(b.id));
-
-    const range = (key) => {
-      const v = rows.map(r => r[key]);
+  const ranges = useMemo(() => {
+    const range = key => {
+      const v = heatRows.map(r => r[key]);
       return { min: Math.min(...v), max: Math.max(...v) };
     };
+    return { eraR: range("era"), opsR: range("ops"), errR: range("errG"), sbR: range("sbPct") };
+  }, [heatRows]);
 
-    return { rows, eraR: range("era"), opsR: range("ops"), errR: range("errG"), sbR: range("sbPct") };
-  }, [data]);
+  const [sortCol, setSortCol] = useState("Team");
+  const [sortDir, setSortDir] = useState("asc");
+
+  const toggleSort = col => {
+    if (col === sortCol) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortCol(col);
+      setSortDir("asc");
+    }
+  };
+
+  const sortedHeatRows = useMemo(() => {
+    return [...heatRows].sort((a, b) => {
+      if (sortCol === "Team") {
+        return sortDir === "asc" ? a.id.localeCompare(b.id) : b.id.localeCompare(a.id);
+      }
+      const lowerIsBetter = sortCol === "era" || sortCol === "errG";
+      const av = a[sortCol], bv = b[sortCol];
+      const cmp = lowerIsBetter ? av - bv : bv - av;
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [heatRows, sortCol, sortDir]);
 
   const cellStyle = (value, min, max, lowerIsBetter) => {
     const c = heatCell(value, min, max, lowerIsBetter);
     return { background: c.bg, color: c.color, fontFamily: "monospace", fontWeight: 600, fontSize: 13 };
   };
 
+  const cols = [
+    { key: "Team",  label: "TEAM",  align: "left" },
+    { key: "era",   label: "ERA",   align: "right" },
+    { key: "ops",   label: "OPS",   align: "right" },
+    { key: "errG",  label: "ERR/G", align: "right" },
+    { key: "sbPct", label: "SB%",   align: "right" },
+  ];
+
   return (
     <div className="heatmap-wrap">
       <table>
         <thead>
           <tr>
-            <th style={{ textAlign: "left" }}>Team</th>
-            <th style={{ textAlign: "right" }}>ERA</th>
-            <th style={{ textAlign: "right" }}>OPS</th>
-            <th style={{ textAlign: "right" }}>Err/G</th>
-            <th style={{ textAlign: "right" }}>SB%</th>
+            {cols.map(col => (
+              <th key={col.key} onClick={() => toggleSort(col.key)}
+                style={{
+                  textAlign: col.align, cursor: "pointer", userSelect: "none",
+                  color: sortCol === col.key ? "var(--navy)" : "var(--text2)",
+                  fontWeight: 700, fontSize: 11, textTransform: "uppercase",
+                  letterSpacing: "0.7px", padding: "10px 12px", whiteSpace: "nowrap",
+                }}>
+                {col.label}
+                {sortCol === col.key ? (sortDir === "asc" ? " \u2191" : " \u2193") : " \u2195"}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {heatData.rows.map(t => (
+          {sortedHeatRows.map(t => (
             <tr key={t.id} className={t.id === "RVRH" ? "heatmap-rvrh" : ""} onClick={() => onTeamClick(t.id)}>
               <td className="td-name">{t.id}</td>
-              <td className="td-r" style={cellStyle(t.era, heatData.eraR.min, heatData.eraR.max, true)}>{fix2(t.era)}</td>
-              <td className="td-r" style={cellStyle(t.ops, heatData.opsR.min, heatData.opsR.max, false)}>{avg3(t.ops)}</td>
-              <td className="td-r" style={cellStyle(t.errG, heatData.errR.min, heatData.errR.max, true)}>{fix1(t.errG)}</td>
-              <td className="td-r" style={cellStyle(t.sbPct, heatData.sbR.min, heatData.sbR.max, false)}>{t.sbPct > 0 ? pct(t.sbPct) : "—"}</td>
+              <td className="td-r" style={cellStyle(t.era, ranges.eraR.min, ranges.eraR.max, true)}>{fix2(t.era)}</td>
+              <td className="td-r" style={cellStyle(t.ops, ranges.opsR.min, ranges.opsR.max, false)}>{avg3(t.ops)}</td>
+              <td className="td-r" style={cellStyle(t.errG, ranges.errR.min, ranges.errR.max, true)}>{fix1(t.errG)}</td>
+              <td className="td-r" style={cellStyle(t.sbPct, ranges.sbR.min, ranges.sbR.max, false)}>{t.sbPct > 0 ? pct(t.sbPct) : "\u2014"}</td>
             </tr>
           ))}
         </tbody>
