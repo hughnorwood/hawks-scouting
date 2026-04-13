@@ -588,121 +588,98 @@ function Th({ c, label, s, d, fn, left }) {
 // ─── LEAGUE TAB ─────────────────────────────────────────────────────────────
 
 function LeagueScatterPlot({ data, teams, onTeamClick }) {
-  // Only focal teams (4+ game appearances in game log)
-  const focalIds = useMemo(() => {
-    const counts = {};
-    data.gameLog.forEach(g => {
-      if (g.Away_Team) counts[g.Away_Team] = (counts[g.Away_Team] || 0) + 1;
-      if (g.Home_Team) counts[g.Home_Team] = (counts[g.Home_Team] || 0) + 1;
-    });
-    return Object.entries(counts).filter(([, c]) => c >= 4).map(([t]) => t);
-  }, [data]);
+  const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC'];
 
-  const teamData = useMemo(() => {
-    return focalIds.map(id => {
+  const plotTeams = useMemo(() => {
+    return FOCAL_TEAMS.map(id => {
       const s = teamSummary(data, id);
       const pt = playoffThreat(data, id);
-      const rec = teamRecord(data, id);
-      return {
-        id, ops: s.teamOBP + s.teamSLG, era: s.ERA,
-        score: pt ? pt.score : 0, W: rec.W, L: rec.L,
-      };
-    }).filter(t => t.ops > 0 || t.era > 0);
-  }, [data, focalIds]);
+      return { id, ops: s.teamOBP + s.teamSLG, era: s.ERA, tier: pt?.tier ?? "WEAK", score: pt?.score ?? 0, W: s.W, L: s.L };
+    }).filter(t => isFinite(t.ops) && isFinite(t.era) && t.era < 30);
+  }, [data]);
 
-  if (teamData.length === 0) return null;
+  if (plotTeams.length === 0) return null;
 
   // River Hill summary for annotation
   const rvrh = teamSummary(data, "RVRH");
 
-  // OPS (X axis) — proportional padding with enforced minimum span
-  const opsValues = teamData.map(t => t.ops).filter(v => isFinite(v));
-  const opsDataMin = Math.min(...opsValues), opsDataMax = Math.max(...opsValues);
-  const opsPad = Math.max(0.120, (opsDataMax - opsDataMin) * 0.40);
-  const xMid = (opsDataMin + opsDataMax) / 2;
-  const xSpan = Math.max((opsDataMax + opsPad) - (opsDataMin - opsPad), 0.600);
-  const xLo = xMid - xSpan / 2, xHi = xMid + xSpan / 2;
+  // Fixed axis bounds
+  const X_MIN = 0.400, X_MAX = 1.100;
+  const Y_MIN = 2.500, Y_MAX = 13.0;
 
-  // ERA (Y axis, inverted — low ERA plots at top)
-  const eraValues = teamData.map(t => t.era).filter(v => isFinite(v) && v < 30);
-  const eraDataMin = Math.min(...eraValues), eraDataMax = Math.max(...eraValues);
-  const eraPad = Math.max(1.50, (eraDataMax - eraDataMin) * 0.40);
-  const yMid = (eraDataMin + eraDataMax) / 2;
-  const ySpan = Math.max((eraDataMax + eraPad) - (eraDataMin - eraPad), 8.00);
-  const yTopRaw = yMid - ySpan / 2;
-  const yTop = Math.max(0, yTopRaw);  // ERA can't be negative
-  const yBottom = yTop + ySpan;       // keep span consistent after clamping
+  // SVG layout
+  const SVG_W = 600, SVG_H = 400;
+  const ML = 55, MT = 40, MR = 20, MB = 45;
+  const INSET = 20;
 
-  // SVG layout with 16px inset padding so dots at extremes aren't clipped
-  const svgW = 600, svgH = 400, mx = 55, my = 40, mr = 20, mb = 45;
-  const inset = 16;
-  const pw = svgW - mx - mr - inset * 2;
-  const ph = svgH - my - mb - inset * 2;
+  // Inner plot rectangle (inset from margins so dots aren't clipped)
+  const PL = ML + INSET, PR = SVG_W - MR - INSET;
+  const PT = MT + INSET, PB = SVG_H - MB - INSET;
+  const PW = PR - PL, PH = PB - PT;
 
-  const scaleX = v => mx + inset + ((v - xLo) / (xHi - xLo)) * pw;
-  const scaleY = v => my + inset + ((v - yTop) / (yBottom - yTop)) * ph;
+  const toX = ops => PL + ((ops - X_MIN) / (X_MAX - X_MIN)) * PW;
+  const toY = era => PT + ((era - Y_MIN) / (Y_MAX - Y_MIN)) * PH;
 
-  const midXVal = (xLo + xHi) / 2;
-  const midYVal = (yTop + yBottom) / 2;
+  const midXVal = (X_MIN + X_MAX) / 2;
+  const midYVal = (Y_MIN + Y_MAX) / 2;
 
-  // X ticks — 5 evenly spaced
-  const xStep = (xHi - xLo) / 5;
-  const xTicks = Array.from({ length: 6 }, (_, i) => xLo + i * xStep);
-  // Y ticks — 5 evenly spaced
-  const yStep = (yBottom - yTop) / 5;
-  const yTicks = Array.from({ length: 6 }, (_, i) => yTop + i * yStep);
+  // Ticks — 5 intervals
+  const xStep = (X_MAX - X_MIN) / 5;
+  const xTicks = Array.from({ length: 6 }, (_, i) => X_MIN + i * xStep);
+  const yStep = (Y_MAX - Y_MIN) / 5;
+  const yTicks = Array.from({ length: 6 }, (_, i) => Y_MIN + i * yStep);
 
   return (
     <div className="scatter-wrap">
-      <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: "100%", height: "auto", maxHeight: 420 }}>
+      <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} style={{ width: "100%", height: "auto", maxHeight: 420 }}>
         {/* Zone backgrounds */}
-        <rect x={scaleX(midXVal)} y={my} width={scaleX(xHi) + inset - scaleX(midXVal)} height={scaleY(midYVal) - my}
+        <rect x={toX(midXVal)} y={MT} width={SVG_W - MR - toX(midXVal)} height={toY(midYVal) - MT}
           fill="rgba(59,109,17,0.06)" rx="4" />
-        <rect x={mx} y={my} width={scaleX(midXVal) - mx} height={scaleY(midYVal) - my}
+        <rect x={ML} y={MT} width={toX(midXVal) - ML} height={toY(midYVal) - MT}
           fill="rgba(26,95,168,0.04)" rx="4" />
-        <rect x={scaleX(midXVal)} y={scaleY(midYVal)} width={scaleX(xHi) + inset - scaleX(midXVal)} height={svgH - mb - scaleY(midYVal)}
+        <rect x={toX(midXVal)} y={toY(midYVal)} width={SVG_W - MR - toX(midXVal)} height={SVG_H - MB - toY(midYVal)}
           fill="rgba(139,80,16,0.04)" rx="4" />
 
         {/* Axes */}
-        <line x1={mx} y1={svgH - mb} x2={svgW - mr} y2={svgH - mb} stroke="var(--bd)" strokeWidth="1" />
-        <line x1={mx} y1={my} x2={mx} y2={svgH - mb} stroke="var(--bd)" strokeWidth="1" />
+        <line x1={ML} y1={SVG_H - MB} x2={SVG_W - MR} y2={SVG_H - MB} stroke="#C8D5E8" strokeWidth="1" />
+        <line x1={ML} y1={MT} x2={ML} y2={SVG_H - MB} stroke="#C8D5E8" strokeWidth="1" />
 
         {/* X-axis ticks */}
         {xTicks.map((v, i) => (
           <g key={`xt${i}`}>
-            <line x1={scaleX(v)} y1={svgH - mb} x2={scaleX(v)} y2={svgH - mb + 4} stroke="var(--bd2)" strokeWidth="1" />
-            <text x={scaleX(v)} y={svgH - mb + 18} textAnchor="middle" fontSize="10" fill="var(--muted)" fontFamily="'Courier New',monospace">{v.toFixed(3)}</text>
+            <line x1={toX(v)} y1={SVG_H - MB} x2={toX(v)} y2={SVG_H - MB + 4} stroke="#A8BDD8" strokeWidth="1" />
+            <text x={toX(v)} y={SVG_H - MB + 18} textAnchor="middle" fontSize={11} fontWeight={600} fill="#3A5070" fontFamily="Nunito Sans, sans-serif">{v.toFixed(3)}</text>
           </g>
         ))}
-        <text x={mx + (svgW - mx - mr) / 2} y={svgH - 4} textAnchor="middle" fontSize="11" fill="var(--text2)" fontWeight="700" fontFamily="'Nunito Sans'">OPS</text>
+        <text x={ML + (SVG_W - ML - MR) / 2} y={SVG_H - 4} textAnchor="middle" fontSize={13} fontWeight={700} fill="#0D2240" fontFamily="Nunito Sans, sans-serif">OPS</text>
 
-        {/* Y-axis ticks (ERA, inverted — low at top) */}
+        {/* Y-axis ticks (ERA — low at top) */}
         {yTicks.map((v, i) => (
           <g key={`yt${i}`}>
-            <line x1={mx - 4} y1={scaleY(v)} x2={mx} y2={scaleY(v)} stroke="var(--bd2)" strokeWidth="1" />
-            <text x={mx - 8} y={scaleY(v) + 3} textAnchor="end" fontSize="10" fill="var(--muted)" fontFamily="'Courier New',monospace">{v.toFixed(1)}</text>
+            <line x1={ML - 4} y1={toY(v)} x2={ML} y2={toY(v)} stroke="#A8BDD8" strokeWidth="1" />
+            <text x={ML - 8} y={toY(v) + 4} textAnchor="end" fontSize={11} fontWeight={600} fill="#3A5070" fontFamily="Nunito Sans, sans-serif">{v.toFixed(1)}</text>
           </g>
         ))}
-        <text x={14} y={my + (svgH - my - mb) / 2} textAnchor="middle" fontSize="11" fill="var(--text2)" fontWeight="700" fontFamily="'Nunito Sans'" transform={`rotate(-90, 14, ${my + (svgH - my - mb) / 2})`}>ERA</text>
+        <text x={14} y={MT + (SVG_H - MT - MB) / 2} textAnchor="middle" fontSize={13} fontWeight={700} fill="#0D2240" fontFamily="Nunito Sans, sans-serif" transform={`rotate(-90, 14, ${MT + (SVG_H - MT - MB) / 2})`}>ERA</text>
 
         {/* Dots */}
-        {teamData.map(t => {
-          const cx = scaleX(t.ops), cy = scaleY(t.era);
+        {plotTeams.map(t => {
+          const cx = toX(t.ops), cy = toY(t.era);
           const isRVRH = t.id === "RVRH";
           const tier = threatTierUI(t.score);
-          const fill = isRVRH ? "#001E50" : tier.bg;
+          const dotFill = isRVRH ? "#001E50" : tier.bg;
           return (
             <g key={t.id} onClick={() => onTeamClick(t.id)} style={{ cursor: "pointer" }}>
-              <circle cx={cx} cy={cy} r={10} fill={fill}
+              <circle cx={cx} cy={cy} r={10} fill={dotFill}
                 stroke={isRVRH ? "#D4900A" : "none"} strokeWidth={isRVRH ? 2.5 : 0}
                 opacity={0.92} />
               {!isRVRH && (
-                <text x={cx + 14} y={cy + 4} fontSize="10" fill="var(--text2)" fontWeight="600" fontFamily="'Nunito Sans'">{t.id}</text>
+                <text x={cx + 14} y={cy + 4} fontSize={10} fontWeight={600} fill="#3A5070" fontFamily="Nunito Sans, sans-serif">{t.id}</text>
               )}
               {isRVRH && (
                 <>
-                  <line x1={cx + 12} y1={cy} x2={cx + 22} y2={cy - 14} stroke="var(--bd2)" strokeWidth="1" />
-                  <text x={cx + 24} y={cy - 18} fontSize="11" fill="var(--navy)" fontWeight="800" fontFamily="'Nunito Sans'">{`River Hill \u00b7 ${rvrh.W}\u2013${rvrh.L}`}</text>
+                  <line x1={cx + 12} y1={cy} x2={cx + 22} y2={cy - 14} stroke="#A8BDD8" strokeWidth="1" />
+                  <text x={cx + 24} y={cy - 12} fontSize={12} fontWeight={800} fill="#001E50" fontFamily="Nunito Sans, sans-serif">{`River Hill \u00b7 ${rvrh.W}\u2013${rvrh.L}`}</text>
                 </>
               )}
             </g>
