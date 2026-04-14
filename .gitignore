@@ -3,6 +3,7 @@ dist/
 .env
 .DS_Store
 .claude/
+reports/
 
 # Scraper session — contains authenticated tokens, never commit
 pipeline/gc_session.json
