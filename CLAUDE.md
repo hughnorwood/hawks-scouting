@@ -350,6 +350,7 @@ Vercel auto-deploys on push to main — no additional step needed.
 - **The prompts are the source of truth.** `prompts/transcribe.md` and `prompts/ingest.md` are versioned files. Do not inline their logic into Python scripts — always read and pass them as prompts.
 - **Batter misattribution is the primary transcription failure mode.** GC logs show a "next batter" header immediately before the final play of the preceding batter. The v4.1 prompt handles this — the active batter is always the player named in the play description. If misattribution is suspected, check the raw file in `pipeline/raw/` against the markdown play log.
 - **Team-level gates do not catch misattributions.** G1-G4 verify team hit and run totals — a stat misattributed to the wrong player can pass all gates if team totals still balance. Per-player PA reconciliation in `ingest.py` is the additional safeguard.
+- **CODE_ALIASES are applied to all data rows.** `ingest.py` remaps non-canonical team codes (LNGR→LNRC, MDDL→MDLT, CNTR→CNTY, HRFR→HRFD, KNTS→KTIS, NRTH→NHRF) in all team-code fields (Team, Away_Team, Home_Team, Focal_Team, Opponent) before writing to Excel. This was fixed April 14, 2026 — prior to that, aliases only applied to focal team detection, causing split data (e.g., Long Reach stats split between LNGR and LNRC).
 - **NRTH alias is ambiguous.** `NRTH→NHRF` is correct for North Harford games but incorrect for North County, Northeast, or North Point. Verify manually when "North" teams appear.
 - **The Excel filename is `RiverHill_Repository_Master.xlsx`** — not `RiverHill_Repository.xlsx`.
 - **Focal team list is hardcoded** in the app as `FOCAL_TEAMS` (13 teams). The League scatter plot, standings table, and heat map all filter to this list. The `classifyTeams()` function still derives focal teams dynamically for the Ask tab's data context, but the UI components use the hardcoded array.
@@ -367,6 +368,7 @@ Vercel auto-deploys on push to main — no additional step needed.
 - ⚠️ **Backfill games transcribed with v4.0 should be spot-checked** — any game where a walk-off or late-inning play had a "next batter" header adjacent to the final play is a misattribution risk
 - ✅ **Rate limit handling** — 15s delays between API calls; `|| continue` resilience in workflow
 - ✅ **Session persistence** — `gc_session.json` cached in Actions; login only on expiry
+- ✅ **CODE_ALIASES applied to data rows** — fixed April 14; all team-code fields remapped before Excel write
 
 ### App (v5 redesign — completed April 13, 2026)
 - ✅ **3-tab architecture** — League / Teams / Ask (replaced 5-tab v4: League/Matchup/Teams/Players/Chat)
@@ -376,7 +378,7 @@ Vercel auto-deploys on push to main — no additional step needed.
 - ✅ **Desktop layout** — two-column at ≥1280px for both League and Teams tabs
 - ✅ **Full team names** — TEAM_NAMES map applied to standings, heat map, cards, briefing headers
 - ✅ **Design system** — updated colors (#001E50 navy, #D4900A gold), 10px radius, Courier New for stats, 44px touch targets
-- ✅ **Repo cleanup** — removed Vite scaffold, node_modules, dist/ from repo
+- ✅ **Repo cleanup** — node_modules/ and dist/ removed from repo (built by Vercel on deploy); Vite scaffold (package.json, vite.config.js, src/main.jsx, index.html) retained as build plumbing
 
 ---
 

@@ -213,6 +213,13 @@ GameChanger has a login gate. Playwright saves authenticated session state to `p
 ### Team-level gates do not catch all errors
 G1-G6 verify team hit and run totals. They cannot catch: stats correctly totaled but misattributed between players, dropped PAs that result in neither a hit nor a run, or errors in counting stats that happen to cancel out. The per-player PA check is the additional safeguard but is not exhaustive.
 
+### CODE_ALIASES not applied to data rows (fixed April 14, 2026)
+**What happened:** `ingest.py` had a `CODE_ALIASES` map (LNGR→LNRC, MDDL→MDLT, etc.) but only used it to identify the focal team. The actual data rows Claude returned — batting, pitching, fielding, Game_Log — were written to Excel with the non-canonical codes verbatim. This caused split data: Long Reach had stats under both `LNGR` (2 games) and `LNRC` (10 games), so the app showed incomplete totals.
+
+**Fix:** `ingest.py` now applies `CODE_ALIASES` to all team-code fields (Team, Away_Team, Home_Team, Focal_Team, Opponent) in every data row before writing to Excel. The two affected games were re-ingested with the fix applied.
+
+**Lesson:** Any transformation that applies to detection logic should also apply to the output data. Test with a known-alias team (e.g., Long Reach = LNGR/LNRC) after pipeline changes.
+
 ### API rate limits during backfill
 The pipeline hit the output token rate limit (8,000 tokens/minute for claude-sonnet-4-20250514) during the initial backfill run processing multiple games in sequence. Fix: 60-second delay between API calls in multi-game runs. This only affects backfill — single daily game runs are well within limits. Rate limits increase automatically with account spend history over time.
 
@@ -244,21 +251,22 @@ Pushing `.github/workflows/` files requires the `workflow` scope on the GitHub P
 ### Pipeline
 - ✅ Full pipeline live and running (daily 6am ET cron + manual dispatch)
 - ✅ All 6 build steps complete
-- ✅ Backfill complete — all 13 focal teams backfilled; 4,153+ rows in repository
+- ✅ Backfill complete — all 13 focal teams backfilled; 4,628+ rows in repository
 - ✅ Rate limit workaround in place (15-second delay between calls)
 - ✅ Batter misattribution bug fixed in transcribe.md v4.1
+- ✅ CODE_ALIASES applied to all data rows in ingest.py (fixed April 14)
 - ⚠️ ~10 gate failures pending retry (`.md` exists but not in Excel Game_Log)
 - ⚠️ Backfill games transcribed with v4.0 should be spot-checked for misattribution
 
-### App (v5 redesign — completed April 13, 2026)
+### App (v5 redesign — completed April 13–14, 2026)
 - ✅ 3-tab architecture live (League / Teams / Ask)
-- ✅ Desktop two-column layouts at ≥1280px
-- ✅ Interactive scatter plot with hover legend
-- ✅ Sortable standings and heat map with full team names
-- ✅ 3-tier Teams tab (focal cards, scouted table, limited accordion)
+- ✅ Desktop two-column layouts at ≥1280px (master-detail on Teams tab)
+- ✅ Interactive scatter plot with hover tooltips and team legend
+- ✅ Sortable standings and heat map with full team names, expand/collapse for 6→13 rows
+- ✅ 3-tier Teams tab (focal cards, scouted opponents table, limited data accordion)
 - ✅ Team briefing with pitcher outing strips and 3 drawers
-- ✅ Player intelligence with game log filters
-- ✅ Repo cleaned — no Vite scaffold, no node_modules, no dist/
+- ✅ Player intelligence with game log filters (Season/Last 10/Last 5)
+- ✅ Repo cleaned — node_modules/ and dist/ removed (built by Vercel on deploy)
 
 ---
 
