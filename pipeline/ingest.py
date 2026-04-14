@@ -303,6 +303,27 @@ def main():
         print(response_text)
         sys.exit(1)
 
+    # Apply CODE_ALIASES to all team-code fields in the data rows
+    CODE_ALIASES = {
+        "MDDL": "MDLT", "CNTR": "CNTY", "LNGR": "LNRC", "HRFR": "HRFD",
+        "KNTS": "KTIS", "NRTH": "NHRF",
+    }
+    TEAM_FIELDS = ("Team", "Away_Team", "Home_Team", "Focal_Team", "Opponent")
+
+    def remap_row(row):
+        for field in TEAM_FIELDS:
+            if field in row and row[field] in CODE_ALIASES:
+                old = row[field]
+                row[field] = CODE_ALIASES[old]
+                print(f"  Alias remap: {field} {old} → {row[field]}")
+        return row
+
+    if "game_log" in data:
+        data["game_log"] = remap_row(data["game_log"])
+    for sheet in ("batting", "pitching", "fielding"):
+        if sheet in data:
+            data[sheet] = [remap_row(r) for r in data[sheet]]
+
     # Check gates
     gates = data.get("gates", {})
     all_passed = True
