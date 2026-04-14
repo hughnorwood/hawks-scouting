@@ -1998,9 +1998,21 @@ function ReportTab({ data }) {
               {results.length} rows · {okCount} games processed{errCount > 0 ? ` · ${errCount} skipped` : ""}
             </span>
             {results.length > 0 && (
-              <button className="ask-send" onClick={downloadCSV} style={{ padding: "8px 18px", fontSize: 13 }}>
-                Download CSV
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="ask-send" onClick={() => {
+                  const allKeys = [...new Set(results.flatMap(r => Object.keys(r)))];
+                  const tsv = [allKeys.join("\t"), ...results.map(r => allKeys.map(k => r[k] ?? "").join("\t"))].join("\n");
+                  navigator.clipboard.writeText(tsv).then(() => {
+                    const btn = document.getElementById("copy-btn");
+                    if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = "Copy for Sheets"; }, 2000); }
+                  });
+                }} id="copy-btn" style={{ padding: "8px 18px", fontSize: 13, background: "var(--s1)", color: "var(--navy)", border: "1px solid var(--bd)" }}>
+                  Copy for Sheets
+                </button>
+                <button className="ask-send" onClick={downloadCSV} style={{ padding: "8px 18px", fontSize: 13 }}>
+                  Download CSV
+                </button>
+              </div>
             )}
           </div>
 
