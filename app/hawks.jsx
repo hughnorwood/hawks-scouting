@@ -816,6 +816,10 @@ function StandingsTable({ data, teams, onTeamClick }) {
     </tr>
   );
 
+  const INITIAL_SHOW = 5; // field teams shown before expand (plus RVRH pinned = 6 total)
+  const [expanded, setExpanded] = useState(false);
+  const visibleField = expanded ? sortedField : sortedField.slice(0, INITIAL_SHOW);
+
   return (
     <div className="standings-wrap">
       <table>
@@ -833,9 +837,20 @@ function StandingsTable({ data, teams, onTeamClick }) {
         </thead>
         <tbody>
           {rvrh && renderRow(rvrh, "standings-rvrh standings-sep")}
-          {sortedField.map(t => renderRow(t, ""))}
+          {visibleField.map(t => renderRow(t, ""))}
         </tbody>
       </table>
+      {sortedField.length > INITIAL_SHOW && (
+        <div onClick={() => setExpanded(v => !v)}
+          style={{
+            padding: "10px 16px", cursor: "pointer", textAlign: "center",
+            fontSize: 12, fontWeight: 700, color: "var(--navy)",
+            borderTop: "1px solid var(--bd)", background: "var(--s2)",
+            userSelect: "none",
+          }}>
+          {expanded ? "Show fewer" : `Show all ${sortedField.length + 1} teams`}
+        </div>
+      )}
     </div>
   );
 }
@@ -928,6 +943,10 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
     { key: "sbPct", label: "SB%",   align: "right" },
   ];
 
+  const INITIAL_SHOW = 6;
+  const [expanded, setExpanded] = useState(false);
+  const visibleRows = expanded ? sortedHeatRows : sortedHeatRows.slice(0, INITIAL_SHOW);
+
   return (
     <div className="heatmap-wrap">
       <table>
@@ -948,7 +967,7 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
           </tr>
         </thead>
         <tbody>
-          {sortedHeatRows.map(t => (
+          {visibleRows.map(t => (
             <tr key={t.id} className={t.id === "RVRH" ? "heatmap-rvrh" : ""} onClick={() => onTeamClick(t.id)}>
               <td className="td-name">{teamName(t.id)}</td>
               <td className="td-r" style={cellStyle(t.era, ranges.eraR.min, ranges.eraR.max, true)}>{fix2(t.era)}</td>
@@ -959,6 +978,17 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
           ))}
         </tbody>
       </table>
+      {sortedHeatRows.length > INITIAL_SHOW && (
+        <div onClick={() => setExpanded(v => !v)}
+          style={{
+            padding: "10px 16px", cursor: "pointer", textAlign: "center",
+            fontSize: 12, fontWeight: 700, color: "var(--navy)",
+            borderTop: "1px solid var(--bd)", background: "var(--s2)",
+            userSelect: "none",
+          }}>
+          {expanded ? "Show fewer" : `Show all ${sortedHeatRows.length} teams`}
+        </div>
+      )}
     </div>
   );
 }
