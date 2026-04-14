@@ -21,6 +21,11 @@ The pipeline was previously a manual HITL workflow: copy-paste from GC → Claud
 ├── CLAUDE.md                          ← this file
 ├── PROJECT_NOTES.md                   ← chat-context knowledge base (not for Claude Code)
 ├── .gitignore                         ← node_modules, dist, .env, .DS_Store, .claude/
+├── index.html                         ← Vite entry point (loads src/main.jsx)
+├── package.json                       ← Vite + React + XLSX deps (build scaffold only)
+├── vite.config.js                     ← Vite config (React plugin, publicDir)
+├── src/
+│   └── main.jsx                       ← React mount: imports App from ../app/hawks.jsx
 ├── .github/
 │   └── workflows/
 │       └── daily.yml                  ← cron job: runs pipeline, commits, pushes
@@ -42,10 +47,18 @@ The pipeline was previously a manual HITL workflow: copy-paste from GC → Claud
 ├── public/
 │   └── repository.json                ← auto-exported, fetched by app on mount
 └── app/
-    └── hawks.jsx                      ← scouting dashboard (single-file React, deployed to Vercel)
+    └── hawks.jsx                      ← scouting dashboard (single-file React, source of truth)
 ```
 
-**No build step.** Vercel serves `app/hawks.jsx` directly. There is no Vite, no bundler, no `package.json`. The `api/` directory contains Vercel serverless functions that proxy Anthropic API calls.
+### Vercel build chain
+Vercel detects `package.json` and runs `npm install` + `vite build` on every deploy. The build chain:
+`index.html` → `src/main.jsx` → `import App from "../app/hawks.jsx"` → Vite compiles → `dist/`
+
+- **`app/hawks.jsx`** is the single source of truth for the app. All edits go here.
+- **`src/main.jsx`** is plumbing only — it imports and mounts the App component. Do not add logic here.
+- **`package.json`**, **`vite.config.js`**, **`index.html`** are build scaffold. Do not delete them.
+- **`node_modules/`** and **`dist/`** are in `.gitignore` — Vercel creates them on deploy.
+- **`api/`** contains Vercel serverless functions that proxy Anthropic API calls server-side.
 
 ---
 
