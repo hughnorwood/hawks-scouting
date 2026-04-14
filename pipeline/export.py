@@ -72,6 +72,17 @@ def main():
     total = sum(len(result[k]) for k in JSON_KEYS)
     print(f"Exported {total} rows to {JSON_PATH} ({JSON_PATH.stat().st_size:,} bytes)")
 
+    # Copy game markdown files to public/games/ for web access
+    import shutil
+    games_src = REPO_ROOT / "games"
+    games_dst = REPO_ROOT / "public" / "games"
+    games_dst.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for md in games_src.glob("*.md"):
+        shutil.copy2(md, games_dst / md.name)
+        copied += 1
+    print(f"Copied {copied} game files to {games_dst}")
+
 
 if __name__ == "__main__":
     main()

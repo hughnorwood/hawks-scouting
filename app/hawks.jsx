@@ -1754,6 +1754,296 @@ function AskTab({ data }) {
   );
 }
 
+// ─── REPORT TAB ──────────────────────────────────────────────────────────────
+
+function buildMapPrompt(query) {
+  return `You are a baseball data analyst. You will receive a full play-by-play game log in markdown format.
+
+Your task: ${query}
+
+Analyze the play-by-play data carefully. Extract the requested information from this single game.
+
+Return ONLY valid JSON — no markdown fences, no explanation, no commentary. Use this exact structure:
+
+{"game_id": "the Game_ID from the header",
+ "date": "YYYY-MM-DD",
+ "away_team": "4-letter code",
+ "home_team": "4-letter code",
+ "data": [
+   ... array of extracted records, one per relevant unit (player, inning, team, etc.) ...
+ ]}
+
+Rules for the "data" array:
+- Use consistent field names across all records
+- Use numeric values for counts and rates (not strings)
+- Include only fields relevant to the query
+- If no data matches the query for this game, return an empty "data" array
+- For percentages, return as decimal (0.667 not "66.7%")
+- For player names, use exactly the name as it appears in the play log`;
+}
+
+function ReportTab({ data }) {
+  const [teamFilter, setTeamFilter] = useState("");
+  const [dateAfter, setDateAfter] = useState("");
+  const [dateBefore, setDateBefore] = useState("");
+  const [homeAway, setHomeAway] = useState("all");
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("idle");
+  const [progress, setProgress] = useState({ current: 0, total: 0, currentGame: "" });
+  const [results, setResults] = useState([]);
+  const [logs, setLogs] = useState([]);
+
+  // All unique team codes from game log
+  const allTeamCodes = useMemo(() => {
+    const codes = new Set();
+    (data.gameLog || []).forEach(g => {
+      if (g.Away_Team) codes.add(g.Away_Team);
+      if (g.Home_Team) codes.add(g.Home_Team);
+    });
+    return [...codes].sort();
+  }, [data]);
+
+  // Filter games
+  const selectedGames = useMemo(() => {
+    return (data.gameLog || []).filter(g => {
+      const gid = g.Game_ID || "";
+      const away = g.Away_Team || "";
+      const home = g.Home_Team || "";
+      const date = String(g.Game_Date || "");
+
+      if (teamFilter) {
+        if (homeAway === "home" && home !== teamFilter) return false;
+        if (homeAway === "away" && away !== teamFilter) return false;
+        if (homeAway === "all" && away !== teamFilter && home !== teamFilter) return false;
+      }
+      if (dateAfter && date < dateAfter) return false;
+      if (dateBefore && date > dateBefore) return false;
+      return true;
+    }).sort((a, b) => String(a.Game_Date || "").localeCompare(String(b.Game_Date || "")));
+  }, [data, teamFilter, dateAfter, dateBefore, homeAway]);
+
+  const runReport = async () => {
+    if (!query.trim() || selectedGames.length === 0) return;
+    setStatus("running");
+    setResults([]);
+    setLogs([]);
+    const systemPrompt = buildMapPrompt(query.trim());
+    const allResults = [];
+    const runLogs = [];
+
+    for (let i = 0; i < selectedGames.length; i++) {
+      const game = selectedGames[i];
+      const gid = game.Game_ID;
+      setProgress({ current: i + 1, total: selectedGames.length, currentGame: gid });
+
+      try {
+        // Fetch game markdown
+        const mdResp = await fetch(`/games/${gid}.md`);
+        if (!mdResp.ok) {
+          runLogs.push({ gid, status: "skip", note: "file not found" });
+          continue;
+        }
+        const mdText = await mdResp.text();
+
+        // Call Claude via existing proxy
+        const apiResp = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: [{ role: "user", content: mdText }],
+          }),
+        });
+        const apiData = await apiResp.json();
+        if (apiData.error) {
+          runLogs.push({ gid, status: "error", note: apiData.error.message });
+          continue;
+        }
+        const text = apiData.content?.find(b => b.type === "text")?.text || "";
+        // Parse JSON — strip markdown fences if present
+        const clean = text.replace(/^```json\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
+        const parsed = JSON.parse(clean);
+        const count = (parsed.data || []).length;
+        allResults.push(parsed);
+        runLogs.push({ gid, status: "ok", note: `${count} records` });
+      } catch (e) {
+        runLogs.push({ gid, status: "error", note: e.message });
+      }
+
+      // Rate limit delay (skip on last game)
+      if (i < selectedGames.length - 1) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
+    // Reduce: flatten per-game results into rows
+    const rows = [];
+    for (const r of allResults) {
+      if (!r || !r.data) continue;
+      const meta = {
+        game_id: r.game_id || "", date: r.date || "",
+        away_team: r.away_team || "", home_team: r.home_team || "",
+      };
+      for (const record of r.data) {
+        rows.push({ ...meta, ...record });
+      }
+    }
+
+    setResults(rows);
+    setLogs(runLogs);
+    setStatus("done");
+  };
+
+  const downloadCSV = () => {
+    if (results.length === 0) return;
+    const allKeys = [];
+    const seen = new Set();
+    for (const row of results) {
+      for (const k of Object.keys(row)) {
+        if (!seen.has(k)) { allKeys.push(k); seen.add(k); }
+      }
+    }
+    const lines = [allKeys.join(",")];
+    for (const row of results) {
+      lines.push(allKeys.map(k => {
+        const v = row[k] ?? "";
+        const s = String(v);
+        return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+      }).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `report_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const okCount = logs.filter(l => l.status === "ok").length;
+  const errCount = logs.filter(l => l.status !== "ok").length;
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      {/* Filter form */}
+      <div className="card" style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: "0.7px", display: "block", marginBottom: 4 }}>Team</label>
+            <select className="ask-inp" value={teamFilter} onChange={e => setTeamFilter(e.target.value)}
+              style={{ width: "100%", padding: "9px 12px", cursor: "pointer" }}>
+              <option value="">All teams</option>
+              {allTeamCodes.map(c => <option key={c} value={c}>{teamName(c)} ({c})</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: "0.7px", display: "block", marginBottom: 4 }}>Home / Away</label>
+            <select className="ask-inp" value={homeAway} onChange={e => setHomeAway(e.target.value)}
+              style={{ width: "100%", padding: "9px 12px", cursor: "pointer" }}>
+              <option value="all">All games</option>
+              <option value="home">Home only</option>
+              <option value="away">Away only</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: "0.7px", display: "block", marginBottom: 4 }}>After</label>
+            <input type="date" className="ask-inp" value={dateAfter} onChange={e => setDateAfter(e.target.value)}
+              style={{ width: "100%", padding: "9px 12px" }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: "0.7px", display: "block", marginBottom: 4 }}>Before</label>
+            <input type="date" className="ask-inp" value={dateBefore} onChange={e => setDateBefore(e.target.value)}
+              style={{ width: "100%", padding: "9px 12px" }} />
+          </div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: "0.7px", display: "block", marginBottom: 4 }}>Query</label>
+          <textarea className="ask-inp" value={query} onChange={e => setQuery(e.target.value)}
+            placeholder="e.g., first pitch strike percentage by pitcher"
+            rows={2} style={{ width: "100%", padding: "9px 12px", resize: "vertical", fontFamily: "'Nunito Sans'" }} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <button className="ask-send" onClick={runReport}
+            disabled={status === "running" || !query.trim() || selectedGames.length === 0}
+            style={{ padding: "10px 24px", minHeight: 44 }}>
+            {status === "running" ? "Running..." : "Run Report"}
+          </button>
+          <span style={{ fontSize: 13, color: "var(--muted)", fontWeight: 600 }}>
+            {selectedGames.length} game{selectedGames.length !== 1 ? "s" : ""} selected
+            {selectedGames.length > 0 && ` · ~$${(selectedGames.length * 0.01).toFixed(2)} est.`}
+          </span>
+        </div>
+      </div>
+
+      {/* Progress */}
+      {status === "running" && (
+        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, fontSize: 12, fontWeight: 700, color: "var(--navy)" }}>
+            <span>Processing {progress.current}/{progress.total}</span>
+            <span className="mono" style={{ color: "var(--muted)" }}>{progress.currentGame}</span>
+          </div>
+          <div style={{ height: 8, background: "var(--s3)", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${(progress.current / progress.total) * 100}%`, background: "var(--navy)", borderRadius: 4, transition: "width 0.3s" }} />
+          </div>
+        </div>
+      )}
+
+      {/* Results */}
+      {status === "done" && (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)" }}>
+              {results.length} rows · {okCount} games processed{errCount > 0 ? ` · ${errCount} skipped` : ""}
+            </span>
+            {results.length > 0 && (
+              <button className="ask-send" onClick={downloadCSV} style={{ padding: "8px 18px", fontSize: 13 }}>
+                Download CSV
+              </button>
+            )}
+          </div>
+
+          {results.length > 0 && (
+            <div className="tbl-wrap" style={{ maxHeight: 500, overflowY: "auto" }}>
+              <table>
+                <thead>
+                  <tr>
+                    {Object.keys(results[0]).map(k => (
+                      <th key={k} style={{ textAlign: "left", position: "sticky", top: 0 }}>{k}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((row, i) => (
+                    <tr key={i}>
+                      {Object.values(row).map((v, j) => (
+                        <td key={j}>{typeof v === "number" ? (Number.isInteger(v) ? v : v.toFixed(3)) : String(v)}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Processing log */}
+          {logs.length > 0 && errCount > 0 && (
+            <details style={{ marginTop: 12, fontSize: 12, color: "var(--muted)" }}>
+              <summary style={{ cursor: "pointer", fontWeight: 600 }}>Processing log ({errCount} issues)</summary>
+              <div style={{ marginTop: 6, fontFamily: "monospace", fontSize: 11 }}>
+                {logs.filter(l => l.status !== "ok").map((l, i) => (
+                  <div key={i}>{l.gid}: {l.note}</div>
+                ))}
+              </div>
+            </details>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [data, setData] = useState(null);
@@ -1821,7 +2111,7 @@ export default function App() {
         </div>
 
         <div className="tabs">
-          {["League", "Teams", "Ask"].map(t => (
+          {["League", "Teams", "Ask", "Report"].map(t => (
             <div key={t} className={`tab ${tab === t ? "on" : ""}`}
               onClick={() => {
                 setTab(t);
@@ -1850,6 +2140,7 @@ export default function App() {
             />
           )}
           {tab === "Ask" && <AskTab data={data} />}
+          {tab === "Report" && <ReportTab data={data} />}
         </div>
       </div>
     </>
