@@ -152,12 +152,16 @@ Return ONLY valid JSON — no markdown fences, no explanation, no commentary. Us
  ]}}
 
 Rules for the "data" array:
+- Each record must be a FLAT object — no nested arrays, no nested objects
+- One row per smallest unit of analysis (e.g., one row per plate appearance, not one row per batter with a nested array of PAs)
 - Use consistent field names across all records
 - Use numeric values for counts and rates (not strings)
 - Include only fields relevant to the query
 - If no data matches the query for this game, return an empty "data" array
 - For percentages, return as decimal (0.667 not "66.7%")
-- For player names, use exactly the name as it appears in the play log"""
+- For player names, use exactly the name as it appears in the play log
+
+CRITICAL: Never nest arrays or objects inside a record. Every value must be a string, number, or boolean. If you need to represent multiple events per player, create one row per event, not one row per player with a sub-array."""
 
 
 def map_game(client, system_prompt, md_path, game_id):
@@ -214,7 +218,8 @@ def map_game(client, system_prompt, md_path, game_id):
 # ─── Reduce Phase ─────────────────────────────────────────────────────────────
 
 def reduce_results(results):
-    """Flatten per-game results into a single list of CSV-ready dicts."""
+    """Flatten per-game results into a single list of CSV-ready dicts.
+    Handles nested arrays/objects that Claude sometimes returns despite prompt instructions."""
     rows = []
     for r in results:
         if not r or not r.get("data"):
@@ -226,8 +231,26 @@ def reduce_results(results):
             "home_team": r.get("home_team", ""),
         }
         for record in r["data"]:
-            row = {**meta, **record}
-            rows.append(row)
+            # Check if any value is a list of dicts — expand into multiple rows
+            array_key = None
+            for k, v in record.items():
+                if isinstance(v, list) and v and isinstance(v[0], dict):
+                    array_key = k
+                    break
+
+            if array_key:
+                # Nested array of objects: expand each sub-object into its own row
+                parent = {k: v for k, v in record.items()
+                          if k != array_key and not isinstance(v, (list, dict))}
+                for sub in record[array_key]:
+                    if isinstance(sub, dict):
+                        rows.append({**meta, **parent, **sub})
+            else:
+                # Flat record — stringify any remaining objects/arrays as fallback
+                flat = dict(meta)
+                for k, v in record.items():
+                    flat[k] = json.dumps(v) if isinstance(v, (list, dict)) else v
+                rows.append(flat)
     return rows
 
 

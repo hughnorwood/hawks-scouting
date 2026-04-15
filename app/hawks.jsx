@@ -1774,12 +1774,16 @@ Return ONLY valid JSON — no markdown fences, no explanation, no commentary. Us
  ]}
 
 Rules for the "data" array:
+- Each record must be a FLAT object — no nested arrays, no nested objects
+- One row per smallest unit of analysis (e.g., one row per plate appearance, not one row per batter with a nested array of PAs)
 - Use consistent field names across all records
 - Use numeric values for counts and rates (not strings)
 - Include only fields relevant to the query
 - If no data matches the query for this game, return an empty "data" array
 - For percentages, return as decimal (0.667 not "66.7%")
-- For player names, use exactly the name as it appears in the play log`;
+- For player names, use exactly the name as it appears in the play log
+
+CRITICAL: Never nest arrays or objects inside a record. Every value must be a string, number, or boolean. If you need to represent multiple events per player, create one row per event, not one row per player with a sub-array.`;
 }
 
 function ReportTab({ data }) {
@@ -1879,6 +1883,7 @@ function ReportTab({ data }) {
     }
 
     // Reduce: flatten per-game results into rows
+    // Handles nested arrays/objects that Claude sometimes returns
     const rows = [];
     for (const r of allResults) {
       if (!r || !r.data) continue;
@@ -1887,7 +1892,27 @@ function ReportTab({ data }) {
         away_team: r.away_team || "", home_team: r.home_team || "",
       };
       for (const record of r.data) {
-        rows.push({ ...meta, ...record });
+        // Check if any value is an array — if so, expand into multiple rows
+        const arrayKey = Object.keys(record).find(k => Array.isArray(record[k]));
+        if (arrayKey && record[arrayKey].length > 0 && typeof record[arrayKey][0] === "object") {
+          // Nested array of objects: expand each sub-object into its own row
+          const parentFields = {};
+          for (const [k, v] of Object.entries(record)) {
+            if (k !== arrayKey && !Array.isArray(v) && typeof v !== "object") parentFields[k] = v;
+          }
+          for (const sub of record[arrayKey]) {
+            if (typeof sub === "object" && sub !== null) {
+              rows.push({ ...meta, ...parentFields, ...sub });
+            }
+          }
+        } else {
+          // Flat record — stringify any remaining objects/arrays as fallback
+          const flat = { ...meta };
+          for (const [k, v] of Object.entries(record)) {
+            flat[k] = (v !== null && typeof v === "object") ? JSON.stringify(v) : v;
+          }
+          rows.push(flat);
+        }
       }
     }
 
