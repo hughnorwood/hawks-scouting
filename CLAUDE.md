@@ -252,7 +252,7 @@ All numeric fields must be exported as numbers, not strings. Date fields export 
 - **Teams** — 3-state progressive disclosure:
   - State 1: focal team card grid (threat-sorted) + scouted opponents table + limited data accordion. Desktop: master-detail (cards left, content right).
   - State 2: team briefing with sticky header, 3 drawers (Pitching/Lineup/Team Discipline). Pitcher outing strips. Player names tappable → State 3.
-  - State 3: player intelligence — summary strip, Season/Last10/Last5 filters, sortable game log. Always full-page.
+  - State 3: player intelligence — summary strip, Season/Last10/Last5 filters, sortable game log. Always full-page. Two-way players get a Pitching/Batting toggle; default view depends on navigation source (Pitching drawer → pitching, Lineup drawer → batting). `defaultView` prop threaded through `navigateToPlayer(teamId, name, "pitching"|"batting")`.
 - **Ask** — Claude-powered chat using `/api/chat` proxy. Only tab that makes API calls. Empty state with 5 suggestion prompts.
 
 ### Removed in v5 (April 2026)

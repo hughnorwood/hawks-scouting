@@ -170,7 +170,7 @@ Single-file React app (~1,800 lines), no build step, deployed to Vercel.
 - **Teams** — 3-state progressive disclosure:
   - State 1: focal team card grid (threat-sorted, 13 hardcoded teams) + scouted opponents table (4+ games) + limited data accordion. Desktop: master-detail layout.
   - State 2: team briefing — sticky slim header (W-L · ERA · WHIP · last 3 results), 3 drawers (Pitching with outing strips / Lineup sortable table / Team Discipline with fielding, battery, baserunning, situational hitting). Player names tappable.
-  - State 3: player intelligence — summary strip, Season/Last10/Last5 filters, sortable game log. Always full-page.
+  - State 3: player intelligence — summary strip, Season/Last10/Last5 filters, sortable game log. Always full-page. Two-way players (pitching + batting data) show a Pitching/Batting toggle; default view set by where the player was tapped (Pitching drawer → pitching view, Lineup drawer → batting view).
 - **Ask** — Claude-powered chat via `/api/chat` Vercel serverless proxy. Only tab that makes API calls. Empty state with 5 coaching-oriented suggestion prompts.
 
 **Key analytical functions (do not break):**
