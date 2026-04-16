@@ -76,7 +76,7 @@ def get_existing_game_ids():
     return game_ids
 
 
-def determine_focal_team(game_md_text, config):
+def determine_focal_team(game_md_text, config, filename=None):
     """Determine the focal team from the Away/Home team codes in the game header.
 
     Only considers team codes that appear as actual participants (in the Final Score
@@ -92,7 +92,10 @@ def determine_focal_team(game_md_text, config):
         "KNTS": "KTIS",
     }
 
+    # Include filename in the header text so Game_ID pattern matches from filename
     header = game_md_text[:3000]
+    if filename:
+        header = filename + "\n" + header
 
     # Extract the two team codes that actually played in this game
     playing_teams = set()
@@ -271,7 +274,7 @@ def main():
     game_md_text = game_md_path.read_text()
 
     # Determine focal team
-    focal_team = determine_focal_team(game_md_text, config)
+    focal_team = determine_focal_team(game_md_text, config, filename=game_md_path.stem)
     print(f"Ingesting: {game_md_path.name}")
     print(f"  Focal team: {focal_team}")
 
