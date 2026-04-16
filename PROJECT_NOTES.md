@@ -213,12 +213,14 @@ GameChanger has a login gate. Playwright saves authenticated session state to `p
 ### Team-level gates do not catch all errors
 G1-G6 verify team hit and run totals. They cannot catch: stats correctly totaled but misattributed between players, dropped PAs that result in neither a hit nor a run, or errors in counting stats that happen to cancel out. The per-player PA check is the additional safeguard but is not exhaustive.
 
-### CODE_ALIASES not applied to data rows (fixed April 14, 2026)
-**What happened:** `ingest.py` had a `CODE_ALIASES` map (LNGR→LNRC, MDDL→MDLT, etc.) but only used it to identify the focal team. The actual data rows Claude returned — batting, pitching, fielding, Game_Log — were written to Excel with the non-canonical codes verbatim. This caused split data: Long Reach had stats under both `LNGR` (2 games) and `LNRC` (10 games), so the app showed incomplete totals.
+### CODE_ALIASES → Name-based team registry (evolved April 14–15, 2026)
+**What happened (April 14):** `ingest.py` had a `CODE_ALIASES` map (LNGR→LNRC, MDDL→MDLT, etc.) but only used it for focal team detection, not data rows. This caused split data (e.g., Long Reach stats under both LNGR and LNRC).
 
-**Fix:** `ingest.py` now applies `CODE_ALIASES` to all team-code fields (Team, Away_Team, Home_Team, Focal_Team, Opponent) in every data row before writing to Excel. The two affected games were re-ingested with the fix applied.
+**What happened next:** Applying aliases to data rows fixed the split data, but the `NRTH` alias was fundamentally broken — GameChanger uses `NRTH` for at least 5 different teams (North Harford, North Point, Northern, North County, Northwest). The global alias `NRTH→NHRF` silently corrupted data for 12 out of 15 NRTH games, attributing stats from other teams to North Harford.
 
-**Lesson:** Any transformation that applies to detection logic should also apply to the output data. Test with a known-alias team (e.g., Long Reach = LNGR/LNRC) after pipeline changes.
+**Fix (April 15):** Replaced the entire `CODE_ALIASES` system with a name-based team registry in `config.json`. Each team has `name_patterns` (lowercase substrings). At ingest time, the full team name from the markdown header (e.g., "North Harford Varsity Hawks") is matched against these patterns to determine the correct canonical code. Resolution is per-game, not global — the same raw code `NRTH` correctly resolves to different canonical codes depending on which team is actually playing.
+
+**Lesson:** Static code-to-code aliases break when the upstream source (GameChanger) reuses codes across teams. Name-based resolution is the correct abstraction — it's stable across code changes and handles ambiguity naturally. Unknown teams now produce loud failures instead of silent corruption.
 
 ### API rate limits during backfill
 The pipeline hit the output token rate limit (8,000 tokens/minute for claude-sonnet-4-20250514) during the initial backfill run processing multiple games in sequence. Fix: 60-second delay between API calls in multi-game runs. This only affects backfill — single daily game runs are well within limits. Rate limits increase automatically with account spend history over time.
@@ -251,11 +253,13 @@ Pushing `.github/workflows/` files requires the `workflow` scope on the GitHub P
 ### Pipeline
 - ✅ Full pipeline live and running (daily 6am ET cron + manual dispatch)
 - ✅ All 6 build steps complete
-- ✅ Backfill complete — all 13 focal teams backfilled; 4,628+ rows in repository
+- ✅ Backfill complete — all 13 focal teams backfilled; 5,171+ rows in repository
 - ✅ Rate limit workaround in place (15-second delay between calls)
 - ✅ Batter misattribution bug fixed in transcribe.md v4.1
-- ✅ CODE_ALIASES applied to all data rows in ingest.py (fixed April 14)
-- ⚠️ ~10 gate failures pending retry (`.md` exists but not in Excel Game_Log)
+- ✅ Verbatim team name preservation — transcribe.md v4.2
+- ✅ Name-based team registry — replaced CODE_ALIASES (April 15); config.json is source of truth for team identity; 13 focal teams + 83 known opponents with name_patterns
+- ✅ NRTH ambiguity resolved — 20 games disambiguated across 5 teams; all future games resolved per-game via name matching
+- ⚠️ A few gate failures pending retry (`.md` exists but not in Excel Game_Log)
 - ⚠️ Backfill games transcribed with v4.0 should be spot-checked for misattribution
 
 ### App (v5 redesign — completed April 13–14, 2026)
