@@ -529,6 +529,11 @@ tbody tr:last-child td { border-bottom:none; }
 .pi-filter { font-family:'Nunito Sans'; font-size:12px; font-weight:700; padding:6px 14px; border-radius:6px; border:1px solid var(--bd); background:var(--s1); color:var(--text2); cursor:pointer; transition:all .12s; min-height:44px; display:flex; align-items:center; }
 .pi-filter:hover { border-color:var(--navy); }
 .pi-filter.on { background:var(--navy); color:#fff; border-color:var(--navy); }
+.pi-toggle { display:flex; gap:0; margin-bottom:14px; }
+.pi-toggle button { font-family:'Nunito Sans'; font-size:13px; font-weight:700; padding:8px 18px; border:1px solid var(--bd); background:var(--s1); color:var(--text2); cursor:pointer; min-height:44px; transition:all .12s; }
+.pi-toggle button:first-child { border-radius:6px 0 0 6px; }
+.pi-toggle button:last-child { border-radius:0 6px 6px 0; border-left:none; }
+.pi-toggle button.on { background:var(--navy); color:#fff; border-color:var(--navy); }
 .pi-table { margin-top:0; }
 .pi-table tbody tr:hover td { background:var(--s2); cursor:default; }
 
@@ -1254,7 +1259,7 @@ function TeamBriefing({ data, teamId, drawerState, setDrawerState, onPlayerClick
 
                 return (
                   <div key={p.Pitcher} className="pc">
-                    <div className="pc-name" onClick={() => onPlayerClick(teamId, p.Pitcher)}>{p.Pitcher}</div>
+                    <div className="pc-name" onClick={() => onPlayerClick(teamId, p.Pitcher, "pitching")}>{p.Pitcher}</div>
                     <div className="pc-role">{role}</div>
                     <div className="pc-stats">
                       <div><div className="pc-stat-val">{fmtIP(p.Outs)}</div><div className="pc-stat-lbl">IP</div></div>
@@ -1314,7 +1319,7 @@ function TeamBriefing({ data, teamId, drawerState, setDrawerState, onPlayerClick
                 <tbody>
                   {sortedBatters.map(b => (
                     <tr key={b.Player}>
-                      <td className="td-name" onClick={() => onPlayerClick(teamId, b.Player)}>{b.Player}</td>
+                      <td className="td-name" onClick={() => onPlayerClick(teamId, b.Player, "batting")}>{b.Player}</td>
                       <td className="td-r">{b.G}</td>
                       <td className="td-r">{b.PA}</td>
                       <td className="td-r">{avg3(b.AVG)}</td>
@@ -1412,11 +1417,17 @@ function TeamBriefing({ data, teamId, drawerState, setDrawerState, onPlayerClick
   );
 }
 
-function PlayerIntelligence({ data, playerName, teamId, onBack }) {
+function PlayerIntelligence({ data, playerName, teamId, defaultView, onBack }) {
   const [filterRange, setFilterRange] = useState("season");
 
   const hasBatting = data.batting.some(r => r.Player === playerName && r.Team === teamId);
   const hasPitching = data.pitching.some(r => r.Pitcher === playerName && r.Team === teamId);
+  const isTwoWay = hasPitching && hasBatting;
+
+  // Toggle defaults based on where the player was clicked from
+  const [view, setView] = useState(
+    isTwoWay ? (defaultView || "batting") : (hasPitching ? "pitching" : "batting")
+  );
 
   const battingRows = useMemo(() =>
     data.batting.filter(r => r.Player === playerName && r.Team === teamId)
@@ -1440,18 +1451,14 @@ function PlayerIntelligence({ data, playerName, teamId, onBack }) {
   const battingAgg = useMemo(() => hasBatting ? aggBatting(filteredBatting)[0] : null, [filteredBatting, hasBatting]);
   const pitchingAgg = useMemo(() => hasPitching ? aggPitching(filteredPitching)[0] : null, [filteredPitching, hasPitching]);
 
-  const isPitcher = hasPitching && (!hasBatting || pitchingRows.length >= battingRows.length);
-
   const { sorted: sortedBattingLog, col: bCol, dir: bDir, toggle: bToggle } = useSort(filteredBatting, "Game_Date");
   const { sorted: sortedPitchingLog, col: pCol, dir: pDir, toggle: pToggle } = useSort(filteredPitching, "Game_Date");
 
-  const role = isPitcher && pitchingAgg ? pitcherRole(pitchingAgg) : "Batter";
+  const role = view === "pitching" && pitchingAgg ? pitcherRole(pitchingAgg) : "Batter";
 
   const fmtDate = d => {
     const s = String(d);
-    // Handle YYYY-MM-DD format
     if (s.length >= 10 && s.includes("-")) return s.slice(5, 7) + "/" + s.slice(8, 10);
-    // Handle Excel serial number
     const n = Number(d);
     if (n > 40000 && n < 60000) {
       const epoch = new Date(1899, 11, 30);
@@ -1471,9 +1478,27 @@ function PlayerIntelligence({ data, playerName, teamId, onBack }) {
         <div className="pi-role">{role}</div>
       </div>
 
-      <div className="pi-summary">
-        {isPitcher && pitchingAgg ? (
-          <>
+      {/* Pitching / Batting toggle — only for two-way players */}
+      {isTwoWay && (
+        <div className="pi-toggle">
+          <button className={view === "pitching" ? "on" : ""} onClick={() => setView("pitching")}>Pitching</button>
+          <button className={view === "batting" ? "on" : ""} onClick={() => setView("batting")}>Batting</button>
+        </div>
+      )}
+
+      {/* Filter controls */}
+      <div className="pi-filters">
+        {["season", "last10", "last5"].map(f => (
+          <button key={f} className={`pi-filter ${filterRange === f ? "on" : ""}`} onClick={() => setFilterRange(f)}>
+            {f === "season" ? "Season" : f === "last10" ? "Last 10" : "Last 5"}
+          </button>
+        ))}
+      </div>
+
+      {/* Pitching view */}
+      {view === "pitching" && pitchingAgg && (
+        <>
+          <div className="pi-summary">
             <div className="pi-sum-item"><div className="pi-sum-val">{fmtIP(pitchingAgg.Outs)}</div><div className="pi-sum-lbl">IP</div></div>
             <div className="pi-sum-item"><div className="pi-sum-val">{fix2(pitchingAgg.ERA)}</div><div className="pi-sum-lbl">ERA</div></div>
             <div className="pi-sum-item"><div className="pi-sum-val">{fix2(pitchingAgg.WHIP)}</div><div className="pi-sum-lbl">WHIP</div></div>
@@ -1481,9 +1506,42 @@ function PlayerIntelligence({ data, playerName, teamId, onBack }) {
             <div className="pi-sum-item"><div className="pi-sum-val">{pitchingAgg.BB}</div><div className="pi-sum-lbl">BB</div></div>
             <div className="pi-sum-item"><div className="pi-sum-val">{fix1(pitchingAgg.Outs > 0 ? (pitchingAgg.K / (pitchingAgg.Outs / 3)) * 9 : 0)}</div><div className="pi-sum-lbl">K/9</div></div>
             <div className="pi-sum-item"><div className="pi-sum-val">{pct(pitchingAgg.BBPct)}</div><div className="pi-sum-lbl">BB%</div></div>
-          </>
-        ) : battingAgg ? (
-          <>
+          </div>
+          <div className="tbl-wrap pi-table">
+            <table>
+              <thead>
+                <tr>
+                  <Th c="Game_Date" label="Date" s={pCol} d={pDir} fn={pToggle} left />
+                  <Th c="Opponent" label="Opp" s={pCol} d={pDir} fn={pToggle} left />
+                  <Th c="Outs_Recorded" label="IP" s={pCol} d={pDir} fn={pToggle} />
+                  <Th c="R_Allowed" label="R" s={pCol} d={pDir} fn={pToggle} />
+                  <Th c="H_Allowed" label="H" s={pCol} d={pDir} fn={pToggle} />
+                  <Th c="BB_Allowed" label="BB" s={pCol} d={pDir} fn={pToggle} />
+                  <Th c="K" label="K" s={pCol} d={pDir} fn={pToggle} />
+                </tr>
+              </thead>
+              <tbody>
+                {sortedPitchingLog.map((r, i) => (
+                  <tr key={i}>
+                    <td className="td-name">{fmtDate(r.Game_Date)}</td>
+                    <td className="td-name">{r.Opponent}</td>
+                    <td className="td-r">{fmtIP(num(r.Outs_Recorded))}</td>
+                    <td className="td-r">{num(r.R_Allowed)}</td>
+                    <td className="td-r">{num(r.H_Allowed)}</td>
+                    <td className="td-r">{num(r.BB_Allowed)}</td>
+                    <td className="td-r">{num(r.K)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* Batting view */}
+      {view === "batting" && battingAgg && (
+        <>
+          <div className="pi-summary">
             <div className="pi-sum-item"><div className="pi-sum-val">{battingAgg.G}</div><div className="pi-sum-lbl">G</div></div>
             <div className="pi-sum-item"><div className="pi-sum-val">{battingAgg.PA}</div><div className="pi-sum-lbl">PA</div></div>
             <div className="pi-sum-item"><div className="pi-sum-val">{avg3(battingAgg.AVG)}</div><div className="pi-sum-lbl">AVG</div></div>
@@ -1493,90 +1551,50 @@ function PlayerIntelligence({ data, playerName, teamId, onBack }) {
             <div className="pi-sum-item"><div className="pi-sum-val">{battingAgg.HR}</div><div className="pi-sum-lbl">HR</div></div>
             <div className="pi-sum-item"><div className="pi-sum-val">{battingAgg.SB}</div><div className="pi-sum-lbl">SB</div></div>
             <div className="pi-sum-item"><div className="pi-sum-val">{pct(safe(battingAgg.K, battingAgg.PA))}</div><div className="pi-sum-lbl">K%</div></div>
-          </>
-        ) : null}
-      </div>
-
-      <div className="pi-filters">
-        {["season", "last10", "last5"].map(f => (
-          <button key={f} className={`pi-filter ${filterRange === f ? "on" : ""}`} onClick={() => setFilterRange(f)}>
-            {f === "season" ? "Season" : f === "last10" ? "Last 10" : "Last 5"}
-          </button>
-        ))}
-      </div>
-
-      {isPitcher ? (
-        <div className="tbl-wrap pi-table">
-          <table>
-            <thead>
-              <tr>
-                <Th c="Game_Date" label="Date" s={pCol} d={pDir} fn={pToggle} left />
-                <Th c="Opponent" label="Opp" s={pCol} d={pDir} fn={pToggle} left />
-                <Th c="Outs_Recorded" label="IP" s={pCol} d={pDir} fn={pToggle} />
-                <Th c="R_Allowed" label="R" s={pCol} d={pDir} fn={pToggle} />
-                <Th c="H_Allowed" label="H" s={pCol} d={pDir} fn={pToggle} />
-                <Th c="BB_Allowed" label="BB" s={pCol} d={pDir} fn={pToggle} />
-                <Th c="K" label="K" s={pCol} d={pDir} fn={pToggle} />
-              </tr>
-            </thead>
-            <tbody>
-              {sortedPitchingLog.map((r, i) => (
-                <tr key={i}>
-                  <td className="td-name">{fmtDate(r.Game_Date)}</td>
-                  <td className="td-name">{r.Opponent}</td>
-                  <td className="td-r">{fmtIP(num(r.Outs_Recorded))}</td>
-                  <td className="td-r">{num(r.R_Allowed)}</td>
-                  <td className="td-r">{num(r.H_Allowed)}</td>
-                  <td className="td-r">{num(r.BB_Allowed)}</td>
-                  <td className="td-r">{num(r.K)}</td>
+          </div>
+          <div className="tbl-wrap pi-table">
+            <table>
+              <thead>
+                <tr>
+                  <Th c="Game_Date" label="Date" s={bCol} d={bDir} fn={bToggle} left />
+                  <Th c="Opponent" label="Opp" s={bCol} d={bDir} fn={bToggle} left />
+                  <Th c="PA" label="PA" s={bCol} d={bDir} fn={bToggle} />
+                  <Th c="AB" label="AB" s={bCol} d={bDir} fn={bToggle} />
+                  <Th c="H" label="H" s={bCol} d={bDir} fn={bToggle} />
+                  <Th c="BB" label="BB" s={bCol} d={bDir} fn={bToggle} />
+                  <Th c="K" label="K" s={bCol} d={bDir} fn={bToggle} />
+                  <Th c="HR" label="HR" s={bCol} d={bDir} fn={bToggle} />
+                  <Th c="RBI" label="RBI" s={bCol} d={bDir} fn={bToggle} />
+                  <Th c="SB" label="SB" s={bCol} d={bDir} fn={bToggle} />
+                  <Th c="CS" label="CS" s={bCol} d={bDir} fn={bToggle} />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : hasBatting ? (
-        <div className="tbl-wrap pi-table">
-          <table>
-            <thead>
-              <tr>
-                <Th c="Game_Date" label="Date" s={bCol} d={bDir} fn={bToggle} left />
-                <Th c="Opponent" label="Opp" s={bCol} d={bDir} fn={bToggle} left />
-                <Th c="PA" label="PA" s={bCol} d={bDir} fn={bToggle} />
-                <Th c="AB" label="AB" s={bCol} d={bDir} fn={bToggle} />
-                <Th c="H" label="H" s={bCol} d={bDir} fn={bToggle} />
-                <Th c="BB" label="BB" s={bCol} d={bDir} fn={bToggle} />
-                <Th c="K" label="K" s={bCol} d={bDir} fn={bToggle} />
-                <Th c="HR" label="HR" s={bCol} d={bDir} fn={bToggle} />
-                <Th c="RBI" label="RBI" s={bCol} d={bDir} fn={bToggle} />
-                <Th c="SB" label="SB" s={bCol} d={bDir} fn={bToggle} />
-                <Th c="CS" label="CS" s={bCol} d={bDir} fn={bToggle} />
-              </tr>
-            </thead>
-            <tbody>
-              {sortedBattingLog.map((r, i) => (
-                <tr key={i}>
-                  <td className="td-name">{fmtDate(r.Game_Date)}</td>
-                  <td className="td-name">{r.Opponent}</td>
-                  <td className="td-r">{num(r.PA)}</td>
-                  <td className="td-r">{num(r.AB)}</td>
-                  <td className="td-r">{num(r.H)}</td>
-                  <td className="td-r">{num(r.BB)}</td>
-                  <td className="td-r">{num(r.K)}</td>
-                  <td className="td-r">{num(r.HR)}</td>
-                  <td className="td-r">{num(r.RBI)}</td>
-                  <td className="td-r">{num(r.SB)}</td>
-                  <td className="td-r">{num(r.CS)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
+              </thead>
+              <tbody>
+                {sortedBattingLog.map((r, i) => (
+                  <tr key={i}>
+                    <td className="td-name">{fmtDate(r.Game_Date)}</td>
+                    <td className="td-name">{r.Opponent}</td>
+                    <td className="td-r">{num(r.PA)}</td>
+                    <td className="td-r">{num(r.AB)}</td>
+                    <td className="td-r">{num(r.H)}</td>
+                    <td className="td-r">{num(r.BB)}</td>
+                    <td className="td-r">{num(r.K)}</td>
+                    <td className="td-r">{num(r.HR)}</td>
+                    <td className="td-r">{num(r.RBI)}</td>
+                    <td className="td-r">{num(r.SB)}</td>
+                    <td className="td-r">{num(r.CS)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function TeamsTab({ data, teams, teamsState, selectedTeam, selectedPlayer, drawerState, setDrawerState, navigateToTeam, navigateToPlayer, navigateBack }) {
+function TeamsTab({ data, teams, teamsState, selectedTeam, selectedPlayer, defaultView, drawerState, setDrawerState, navigateToTeam, navigateToPlayer, navigateBack }) {
   const isDesktop = useWindowWidth() >= DESKTOP_BP;
 
   // State 3 (player intelligence) is always full-page
@@ -1586,6 +1604,7 @@ function TeamsTab({ data, teams, teamsState, selectedTeam, selectedPlayer, drawe
         data={data}
         playerName={selectedPlayer}
         teamId={selectedTeam}
+        defaultView={defaultView}
         onBack={() => navigateBack(2)}
       />
     );
@@ -1600,7 +1619,7 @@ function TeamsTab({ data, teams, teamsState, selectedTeam, selectedPlayer, drawe
           teamId={selectedTeam}
           drawerState={drawerState}
           setDrawerState={setDrawerState}
-          onPlayerClick={(tid, name) => navigateToPlayer(tid, name)}
+          onPlayerClick={(tid, name, dv) => navigateToPlayer(tid, name, dv)}
           onBack={() => navigateBack(1)}
         />
       );
@@ -1634,7 +1653,7 @@ function TeamsTab({ data, teams, teamsState, selectedTeam, selectedPlayer, drawe
             teamId={selectedTeam}
             drawerState={drawerState}
             setDrawerState={setDrawerState}
-            onPlayerClick={(tid, name) => navigateToPlayer(tid, name)}
+            onPlayerClick={(tid, name, dv) => navigateToPlayer(tid, name, dv)}
             onBack={() => navigateBack(1)}
           />
         ) : (
@@ -2066,6 +2085,7 @@ export default function App() {
   const [teamsState, setTeamsState] = useState(1);
   const [teamsSelectedTeam, setTeamsSelectedTeam] = useState(null);
   const [teamsSelectedPlayer, setTeamsSelectedPlayer] = useState(null);
+  const [teamsPlayerDefaultView, setTeamsPlayerDefaultView] = useState("batting");
   const [teamsDrawerState, setTeamsDrawerState] = useState({ pitching: true, lineup: false, discipline: false });
 
   const teams = useMemo(() => data ? classifyTeams(data) : { focal: [], opponents: [], all: [] }, [data]);
@@ -2086,9 +2106,10 @@ export default function App() {
     setTeamsSelectedPlayer(null);
   }, []);
 
-  const navigateToPlayer = useCallback((teamId, playerName) => {
+  const navigateToPlayer = useCallback((teamId, playerName, defaultView) => {
     setTeamsSelectedTeam(teamId);
     setTeamsSelectedPlayer(playerName);
+    setTeamsPlayerDefaultView(defaultView || "batting");
     setTeamsState(3);
   }, []);
 
@@ -2147,6 +2168,7 @@ export default function App() {
               teamsState={teamsState}
               selectedTeam={teamsSelectedTeam}
               selectedPlayer={teamsSelectedPlayer}
+              defaultView={teamsPlayerDefaultView}
               drawerState={teamsDrawerState}
               setDrawerState={setTeamsDrawerState}
               navigateToTeam={tid => { setTeamsSelectedTeam(tid); setTeamsState(2); }}
