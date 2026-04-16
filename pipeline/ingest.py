@@ -76,60 +76,131 @@ def get_existing_game_ids():
     return game_ids
 
 
-def determine_focal_team(game_md_text, config, filename=None):
-    """Determine the focal team from the Away/Home team codes in the game header.
+def load_team_registry(config):
+    """Build a flat list of (pattern, canonical_code) pairs from config.json.
 
-    Only considers team codes that appear as actual participants (in the Final Score
-    line, line score table, or Game_ID), not incidental mentions in filenames or text.
+    Patterns are ordered longest-first so 'north harford' matches before 'north'.
+    Focal teams are checked before known opponents.
     """
-    focal_codes = {t["code"] for t in config["focal_teams"]}
-    primary_code = next((t["code"] for t in config["focal_teams"] if t.get("primary")), "RVRH")
+    registry = []
+    for team in config.get("focal_teams", []):
+        for pattern in team.get("name_patterns", []):
+            registry.append((pattern.lower(), team["code"]))
+    for team in config.get("known_opponents", []):
+        for pattern in team.get("name_patterns", []):
+            registry.append((pattern.lower(), team["code"]))
+    # Sort longest patterns first so "north harford" matches before "north"
+    registry.sort(key=lambda x: -len(x[0]))
+    return registry
 
-    # Known aliases: transcription-derived codes → config codes
-    # NOTE: NRTH removed — ambiguous (North Harford, North Point, Northern, North County, Northwest)
-    CODE_ALIASES = {
-        "MDDL": "MDLT", "CNTR": "CNTY", "LNGR": "LNRC", "HRFR": "HRFD",
-        "KNTS": "KTIS",
-    }
 
-    # Include filename in the header text so Game_ID pattern matches from filename
+def resolve_team_name(full_name, registry):
+    """Return canonical code for a full team name, or None if unknown."""
+    name_lower = full_name.lower().strip()
+    for pattern, code in registry:
+        if pattern in name_lower:
+            return code
+    return None
+
+
+def build_game_code_map(game_md_text, registry, filename=None):
+    """Parse the markdown header for full team names and raw codes.
+    Return a dict mapping raw_code → canonical_code for this game.
+
+    Uses name-based resolution from the team registry. Falls back to
+    raw code if the team name resolves to the same code. Warns loudly
+    if a team name can't be resolved.
+    """
     header = game_md_text[:3000]
     if filename:
         header = filename + "\n" + header
 
-    # Extract the two team codes that actually played in this game
-    playing_teams = set()
+    code_map = {}
 
-    # Try Game_ID pattern: YYYY-MM-DD_AWAY_at_HOME
+    # Extract raw team codes from Game_ID pattern or line score
+    raw_codes = []
     m = re.search(r'\d{4}-\d{2}-\d{2}_([A-Z]{3,5})_at_([A-Z]{3,5})', header)
     if m:
-        playing_teams = {m.group(1), m.group(2)}
-
-    # Try Final Score line: "AWAY NN - HOME NN" or "AWAY NN, HOME NN"
-    if not playing_teams:
+        raw_codes = [m.group(1), m.group(2)]
+    if not raw_codes:
         m = re.search(r'Final\s+[Ss]core.*?([A-Z]{3,5})\s+\d+\s*[-–,]\s*([A-Z]{3,5})\s+\d+', header)
         if m:
-            playing_teams = {m.group(1), m.group(2)}
+            raw_codes = [m.group(1), m.group(2)]
+    if not raw_codes:
+        found = re.findall(r'\|\s*([A-Z]{3,5})\s*\|', header)
+        if len(found) >= 2:
+            raw_codes = [found[0], found[1]]
 
-    # Try line score table
-    if not playing_teams:
-        team_codes = re.findall(r'\|\s*([A-Z]{3,5})\s*\|', header)
-        if len(team_codes) >= 2:
-            playing_teams = {team_codes[0], team_codes[1]}
+    # Extract full team names from the Teams line
+    teams_match = re.search(r'Teams[:\*]*\s*(.+)', header)
+    team_names = []
+    if teams_match:
+        line = teams_match.group(1).strip()
+        parts = re.split(r'\s*(?:vs\.?|/|@)\s*', line, maxsplit=1)
+        if len(parts) == 2:
+            for part in parts:
+                # Clean labels and code suffixes
+                name = re.sub(r'\s*\(?(away|home)\)?\s*$', '', part.strip(), flags=re.I)
+                name = re.sub(r'\s*\(?[A-Z]{3,5}\)?\s*$', '', name).strip()
+                name = re.sub(r'^[A-Z]{3,5}\s+', '', name).strip()  # leading code
+                team_names.append(name)
 
-    # Resolve aliases to config codes
-    resolved_teams = {CODE_ALIASES.get(t, t) for t in playing_teams}
+    # Resolve names to canonical codes
+    for i, raw_code in enumerate(raw_codes):
+        # Try name-based resolution first
+        if i < len(team_names) and team_names[i]:
+            canonical = resolve_team_name(team_names[i], registry)
+            if canonical:
+                if raw_code != canonical:
+                    print(f"  [REGISTRY] {raw_code} → {canonical} (from name: '{team_names[i]}')")
+                code_map[raw_code] = canonical
+                continue
+
+        # Try resolving the raw code itself as a name (handles cases like RVRH)
+        canonical = resolve_team_name(raw_code, registry)
+        if canonical:
+            if raw_code != canonical:
+                print(f"  [REGISTRY] {raw_code} → {canonical} (code matched as name)")
+            code_map[raw_code] = canonical
+        else:
+            # Unknown team — pass through with warning
+            print(f"  [REGISTRY] WARNING: Could not resolve code '{raw_code}'"
+                  f"{' (name: ' + repr(team_names[i]) + ')' if i < len(team_names) else ''}. "
+                  f"Add to config.json known_opponents to fix.")
+            code_map[raw_code] = raw_code
+
+    return code_map
+
+
+def determine_focal_team(game_md_text, config, filename=None, registry=None):
+    """Determine the focal team using the name-based team registry.
+
+    Resolves raw team codes from the markdown header via name matching,
+    then checks which resolved code is a focal team.
+    """
+    focal_codes = {t["code"] for t in config["focal_teams"]}
+    primary_code = next((t["code"] for t in config["focal_teams"] if t.get("primary")), "RVRH")
+
+    if registry is None:
+        registry = load_team_registry(config)
+
+    code_map = build_game_code_map(game_md_text, registry, filename)
+    resolved_teams = set(code_map.values())
 
     # Intersect with focal teams
     found_focal = list(resolved_teams & focal_codes)
 
     if not found_focal:
-        # Fallback: broader search, but only for codes that are plausibly team codes
+        # Fallback: search header for focal codes directly
+        header = game_md_text[:3000]
+        if filename:
+            header = filename + "\n" + header
         found_focal = [code for code in focal_codes
                        if re.search(r'\b' + code + r'\b', header)]
 
     if not found_focal:
-        sys.exit("Could not determine focal team — no focal team codes found in game header")
+        sys.exit("Could not determine focal team — no focal team codes found in game header. "
+                 "Check config.json team registry.")
 
     return primary_code if primary_code in found_focal else found_focal[0]
 
@@ -307,20 +378,18 @@ def main():
         print(response_text)
         sys.exit(1)
 
-    # Apply CODE_ALIASES to all team-code fields in the data rows
-    # NOTE: NRTH removed — ambiguous (North Harford, North Point, Northern, North County, Northwest)
-    CODE_ALIASES = {
-        "MDDL": "MDLT", "CNTR": "CNTY", "LNGR": "LNRC", "HRFR": "HRFD",
-        "KNTS": "KTIS",
-    }
+    # Apply name-based team code remapping using the registry
+    # This replaces the old CODE_ALIASES system — resolves codes per-game via team names
+    registry = load_team_registry(config)
+    code_map = build_game_code_map(game_md_text, registry, filename=game_md_path.stem)
     TEAM_FIELDS = ("Team", "Away_Team", "Home_Team", "Focal_Team", "Opponent")
 
     def remap_row(row):
         for field in TEAM_FIELDS:
-            if field in row and row[field] in CODE_ALIASES:
+            if field in row and row[field] in code_map and row[field] != code_map[row[field]]:
                 old = row[field]
-                row[field] = CODE_ALIASES[old]
-                print(f"  Alias remap: {field} {old} → {row[field]}")
+                row[field] = code_map[old]
+                print(f"  [REGISTRY] remap: {field} {old} → {row[field]}")
         return row
 
     if "game_log" in data:

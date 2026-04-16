@@ -29,7 +29,7 @@ Treat every entry as **what the scorer believed happened**. Do not correct, rein
 ### 1. Game Header
 
 Include:
-- Teams (away / home, if determinable)
+- Teams (away / home, if determinable). **Team names must be copied verbatim from the GameChanger page header. Do not abbreviate, paraphrase, or normalize.** For example, write "North Harford Varsity Hawks" not "North Harford" or "NHRF". These full names are used downstream for team identification.
 - Date and time (if available)
 - Game type (e.g., Scrimmage, or "Not labeled" if absent)
 - Final score
