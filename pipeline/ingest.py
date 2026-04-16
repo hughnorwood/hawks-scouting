@@ -86,9 +86,10 @@ def determine_focal_team(game_md_text, config):
     primary_code = next((t["code"] for t in config["focal_teams"] if t.get("primary")), "RVRH")
 
     # Known aliases: transcription-derived codes → config codes
+    # NOTE: NRTH removed — ambiguous (North Harford, North Point, Northern, North County, Northwest)
     CODE_ALIASES = {
         "MDDL": "MDLT", "CNTR": "CNTY", "LNGR": "LNRC", "HRFR": "HRFD",
-        "KNTS": "KTIS", "NRTH": "NHRF",
+        "KNTS": "KTIS",
     }
 
     header = game_md_text[:3000]
@@ -304,9 +305,10 @@ def main():
         sys.exit(1)
 
     # Apply CODE_ALIASES to all team-code fields in the data rows
+    # NOTE: NRTH removed — ambiguous (North Harford, North Point, Northern, North County, Northwest)
     CODE_ALIASES = {
         "MDDL": "MDLT", "CNTR": "CNTY", "LNGR": "LNRC", "HRFR": "HRFD",
-        "KNTS": "KTIS", "NRTH": "NHRF",
+        "KNTS": "KTIS",
     }
     TEAM_FIELDS = ("Team", "Away_Team", "Home_Team", "Focal_Team", "Opponent")
 
