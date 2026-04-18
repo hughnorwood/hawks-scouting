@@ -8,9 +8,77 @@ emitted JSON rows against play-log ground truth. Imported by both
 No I/O here — pure functions only.
 """
 
+import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List, Dict, Set, Optional
+
+
+# ─── Team registry (from pipeline/config.json) ───────────────────────────────
+
+_REGISTRY_CACHE = None
+
+
+def _load_registry():
+    """Load the team registry from pipeline/config.json.
+    Returns a list of (lowercase_pattern, canonical_code) tuples, longest-first.
+    Result is cached.
+    """
+    global _REGISTRY_CACHE
+    if _REGISTRY_CACHE is not None:
+        return _REGISTRY_CACHE
+    config_path = Path(__file__).resolve().parent / "config.json"
+    registry = []
+    if config_path.exists():
+        with open(config_path) as f:
+            config = json.load(f)
+        for team in config.get("focal_teams", []):
+            for pattern in team.get("name_patterns", []):
+                registry.append((pattern.lower(), team["code"]))
+        for team in config.get("known_opponents", []):
+            for pattern in team.get("name_patterns", []):
+                registry.append((pattern.lower(), team["code"]))
+        registry.sort(key=lambda x: -len(x[0]))
+    _REGISTRY_CACHE = registry
+    return registry
+
+
+def _resolve_name_to_code(full_name: str) -> Optional[str]:
+    """Resolve a full team name to canonical code via registry, or None."""
+    registry = _load_registry()
+    name_lower = full_name.lower().strip()
+    for pattern, code in registry:
+        if pattern in name_lower:
+            return code
+    return None
+
+
+def resolve_team_code(raw_code: str, team_name: str = "") -> str:
+    """Resolve a raw team code (possibly non-canonical like LNGR, NRTH, MDDL)
+    to a canonical code (LNRC, NHRF, MDLT) using config.json's registry.
+
+    Strategy:
+      1. If team_name is provided, resolve by name pattern match (most reliable).
+      2. Otherwise, check if raw_code is already a canonical code in the registry.
+      3. Fall back to raw_code unchanged.
+    """
+    if team_name:
+        canonical = _resolve_name_to_code(team_name)
+        if canonical:
+            return canonical
+
+    # Check if raw_code is already a valid canonical code (appears in focal/known team codes)
+    config_path = Path(__file__).resolve().parent / "config.json"
+    if config_path.exists():
+        with open(config_path) as f:
+            config = json.load(f)
+        canonical_codes = {t["code"] for t in config.get("focal_teams", [])}
+        canonical_codes.update(t["code"] for t in config.get("known_opponents", []))
+        if raw_code in canonical_codes:
+            return raw_code
+
+    return raw_code
 
 
 # ─── Data classes ────────────────────────────────────────────────────────────
@@ -79,21 +147,42 @@ def parse_play_log(md_text: str, game_id: Optional[str] = None) -> PlayLog:
     log = PlayLog()
     log.raw_md = md_text
 
-    # Parse team names from header (e.g., "Teams: RVRH / OKLN" or "Teams: Oakland Mills (away) / River Hill (home)")
+    # Parse team names from header (e.g., "Teams: Oakland Mills (away) / River Hill (home)")
     header = md_text[:3000]
 
-    # 1. Try Game_ID pattern within the markdown text
+    # 1. Raw codes — from Game_ID pattern within the markdown text
+    raw_away, raw_home = "", ""
     gid_m = re.search(r'(\d{4}-\d{2}-\d{2})_([A-Z]{3,5})_at_([A-Z]{3,5})', md_text)
     if gid_m:
-        log.away_team = gid_m.group(2)
-        log.home_team = gid_m.group(3)
+        raw_away = gid_m.group(2)
+        raw_home = gid_m.group(3)
 
     # 2. If no match, use the supplied game_id
-    if not log.away_team and game_id:
+    if not raw_away and game_id:
         gid2 = re.match(r'\d{4}-\d{2}-\d{2}_([A-Z]{3,5})_at_([A-Z]{3,5})', game_id)
         if gid2:
-            log.away_team = gid2.group(1)
-            log.home_team = gid2.group(2)
+            raw_away = gid2.group(1)
+            raw_home = gid2.group(2)
+
+    # 3. Extract full team names from "Teams:" line for registry lookup
+    away_name, home_name = "", ""
+    teams_match = re.search(r'Teams[:\*]*\s*(.+)', header)
+    if teams_match:
+        line = teams_match.group(1).strip()
+        parts = re.split(r'\s*(?:vs\.?|/|@)\s*', line, maxsplit=1)
+        if len(parts) == 2:
+            for i, part in enumerate(parts):
+                name = re.sub(r'\s*\(?(away|home)\)?\s*$', '', part.strip(), flags=re.I)
+                name = re.sub(r'\s*\(?[A-Z]{3,5}\)?\s*$', '', name).strip()
+                name = re.sub(r'^[A-Z]{3,5}\s+', '', name).strip()
+                if i == 0:
+                    away_name = name
+                else:
+                    home_name = name
+
+    # 4. Resolve raw codes to canonical codes via registry (name-based, with fallback)
+    log.away_team = resolve_team_code(raw_away, away_name) if raw_away else ""
+    log.home_team = resolve_team_code(raw_home, home_name) if raw_home else ""
 
     # Parse innings played from header
     # Matches "Innings Played: 5", "Innings: 5", "**Innings:** 5 (complete)", etc.
