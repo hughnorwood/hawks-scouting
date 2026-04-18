@@ -822,9 +822,9 @@ function StandingsTable({ data, teams, onTeamClick }) {
   );
 
   return (
-    <div className="standings-wrap" style={{ maxHeight: 480, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+    <div className="standings-wrap" style={{ maxHeight: 480, overflowY: "auto" }}>
       <table>
-        <thead>
+        <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
           <tr>
             <th style={{ ...thStyle, textAlign: "left" }}>Team</th>
             <Th c="W" label="W" s={col} d={dir} fn={toggle} />
@@ -836,15 +836,11 @@ function StandingsTable({ data, teams, onTeamClick }) {
             <th style={{ ...thStyle, textAlign: "center", cursor: "default" }}>Last 5</th>
           </tr>
         </thead>
+        <tbody>
+          {rvrh && renderRow(rvrh, "standings-rvrh standings-sep")}
+          {sortedField.map(t => renderRow(t, ""))}
+        </tbody>
       </table>
-      <div style={{ overflowY: "auto", flex: 1 }}>
-        <table>
-          <tbody>
-            {rvrh && renderRow(rvrh, "standings-rvrh standings-sep")}
-            {sortedField.map(t => renderRow(t, ""))}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
@@ -938,9 +934,9 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
   ];
 
   return (
-    <div className="heatmap-wrap" style={{ maxHeight: 480, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+    <div className="heatmap-wrap" style={{ maxHeight: 480, overflowY: "auto" }}>
       <table>
-        <thead>
+        <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
           <tr>
             {cols.map(col => (
               <th key={col.key} onClick={() => toggleSort(col.key)}
@@ -956,21 +952,18 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
             ))}
           </tr>
         </thead>
+        <tbody>
+          {sortedHeatRows.map(t => (
+            <tr key={t.id} className={t.id === "RVRH" ? "heatmap-rvrh" : ""} onClick={() => onTeamClick(t.id)}>
+              <td className="td-name">{teamName(t.id)}</td>
+              <td className="td-r" style={cellStyle(t.era, ranges.eraR.min, ranges.eraR.max, true)}>{fix2(t.era)}</td>
+              <td className="td-r" style={cellStyle(t.ops, ranges.opsR.min, ranges.opsR.max, false)}>{avg3(t.ops)}</td>
+              <td className="td-r" style={cellStyle(t.errG, ranges.errR.min, ranges.errR.max, true)}>{fix1(t.errG)}</td>
+              <td className="td-r" style={cellStyle(t.sbPct, ranges.sbR.min, ranges.sbR.max, false)}>{t.sbPct > 0 ? pct(t.sbPct) : "\u2014"}</td>
+            </tr>
+          ))}
+        </tbody>
       </table>
-      <div style={{ overflowY: "auto", flex: 1 }}>
-        <table>
-          <tbody>
-            {sortedHeatRows.map(t => (
-              <tr key={t.id} className={t.id === "RVRH" ? "heatmap-rvrh" : ""} onClick={() => onTeamClick(t.id)}>
-                <td className="td-name">{teamName(t.id)}</td>
-                <td className="td-r" style={cellStyle(t.era, ranges.eraR.min, ranges.eraR.max, true)}>{fix2(t.era)}</td>
-                <td className="td-r" style={cellStyle(t.ops, ranges.opsR.min, ranges.opsR.max, false)}>{avg3(t.ops)}</td>
-                <td className="td-r" style={cellStyle(t.errG, ranges.errR.min, ranges.errR.max, true)}>{fix1(t.errG)}</td>
-                <td className="td-r" style={cellStyle(t.sbPct, ranges.sbR.min, ranges.sbR.max, false)}>{t.sbPct > 0 ? pct(t.sbPct) : "\u2014"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </div>
   );
