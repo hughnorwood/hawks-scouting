@@ -383,6 +383,11 @@ def extract_batter_appearances(play_log: PlayLog) -> Dict[str, Dict[str, BatterT
 
     Top-half = Away batting, Bottom-half = Home batting.
     Returns: { team_code: { batter_name: BatterTally } }
+
+    Skips:
+      - "Runner Out" / "Caught Stealing" outcomes (base-running events, not PAs)
+      - Plays with empty Outcome AND Notes indicating game ended mid-PA
+        (e.g., "Game ended", "game ended", "at bat" — PA didn't complete)
     """
     result: Dict[str, Dict[str, BatterTally]] = {
         play_log.away_team: {},
@@ -393,10 +398,21 @@ def extract_batter_appearances(play_log: PlayLog) -> Dict[str, Dict[str, BatterT
         batting_team = play_log.away_team if play.half == "Top" else play_log.home_team
         if not batting_team:
             continue
-        # Skip "Runner Out" and similar non-PA events
-        if "runner out" in play.outcome.lower() or "caught stealing" in play.outcome.lower():
-            # These are base-running outs, not plate appearances; skip PA count
+        outcome_lower = play.outcome.lower().strip()
+        notes_lower = play.notes.lower()
+        desc_lower = play.description.lower()
+
+        # Skip base-running events disguised as plays
+        if "runner out" in outcome_lower or "caught stealing" in outcome_lower:
             continue
+
+        # Skip incomplete PAs: empty outcome + game-ended indicator
+        if not outcome_lower and (
+            "game ended" in notes_lower or "game ended" in desc_lower
+            or desc_lower.strip() in ("at bat", "")
+        ):
+            continue
+
         batter_name = play.batter
         if batter_name not in result[batting_team]:
             result[batting_team][batter_name] = BatterTally(batter=batter_name)
