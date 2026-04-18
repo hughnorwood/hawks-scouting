@@ -11,3 +11,4 @@ pipeline/raw/
 
 # Legacy scraper output directory
 scraper_output/
+__pycache__/
