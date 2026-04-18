@@ -333,7 +333,12 @@ def main():
     if len(sys.argv) < 2:
         sys.exit("Usage: python pipeline/ingest.py <game_markdown_file>")
 
-    game_md_path = Path(sys.argv[1])
+    # Simple arg parsing: [--skip-crosschecks] <game_md_path>
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    skip_crosschecks = "--skip-crosschecks" in sys.argv
+    if not args:
+        sys.exit("Usage: python pipeline/ingest.py [--skip-crosschecks] <game_md_path>")
+    game_md_path = Path(args[0])
     if not game_md_path.exists():
         sys.exit(f"File not found: {game_md_path}")
 
@@ -398,7 +403,7 @@ def main():
         if sheet in data:
             data[sheet] = [remap_row(r) for r in data[sheet]]
 
-    # Check gates
+    # Check gates (Claude's self-reported tallies)
     gates = data.get("gates", {})
     all_passed = True
     for gate_name in ["G1", "G2", "G3", "G4", "G5", "G6"]:
@@ -414,6 +419,34 @@ def main():
         print("\nGATE FAILURE — not writing to Excel.")
         print(f"Notes: {data.get('notes', '')}")
         sys.exit(1)
+
+    # Python-side cross-checks (PC1-PC5): compare Claude's output JSON against
+    # play-log ground truth. Catches cases where gates pass but output is missing
+    # rows (e.g., missing pitcher). See pipeline/validate_core.py for details.
+    if skip_crosschecks:
+        print("  (cross-checks skipped via --skip-crosschecks flag)")
+    else:
+        try:
+            from validate_core import parse_play_log, run_all_checks
+            play_log = parse_play_log(game_md_text, game_id=game_md_path.stem)
+            if play_log.plays:
+                report = run_all_checks(data, play_log)
+                for d in report.discrepancies:
+                    print(f"  {d.check} ❌ {d.team}: expected {d.expected}, got {d.actual}")
+                    print(f"    {d.details}")
+                if not report.ok:
+                    print("\nCROSS-CHECK FAILURE — not writing to Excel.")
+                    print("Review discrepancies above. If the failures are legitimate")
+                    print("(e.g., jersey-only team, known hit-count discrepancy), re-run with")
+                    print("--skip-crosschecks to bypass. Otherwise, fix the markdown or re-ingest.")
+                    sys.exit(1)
+                print("  PC1-PC5 ✅ all cross-checks passed")
+            else:
+                print("  (cross-checks skipped — no play log rows parsed)")
+        except ImportError:
+            print("  (cross-checks skipped — validate_core.py not found)")
+        except Exception as e:
+            print(f"  (cross-checks skipped — error: {e})")
 
     if data.get("duplicate", False):
         print("\nDuplicate flag set in response — not writing.")
