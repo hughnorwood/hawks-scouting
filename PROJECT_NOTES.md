@@ -67,8 +67,12 @@ Vercel auto-deploy — live app updated within minutes
 │   ├── config.json              ← all 13 focal teams with GC IDs and app codes
 │   ├── scrape.py                ← Playwright scraper
 │   ├── transcribe.py            ← transcription API call
-│   ├── ingest.py                ← ingestion API call + Python Excel I/O
-│   └── export.py                ← Excel → JSON exporter
+│   ├── ingest.py                ← ingestion API call + Python Excel I/O (runs PC1-PC5 at write-time)
+│   ├── export.py                ← Excel → JSON exporter
+│   ├── validate_core.py         ← PC1-PC5 validation logic (shared by ingest.py and validate.py)
+│   ├── validate.py              ← standalone CLI: retrospective audit of ingested games
+│   ├── triage.py                ← standalone CLI: classify validator failures into buckets A-H
+│   └── reingest_batch.py        ← standalone CLI: batch retry/repair for Buckets A & B
 ├── prompts/
 │   ├── transcribe.md            ← transcription prompt (v4.1)
 │   └── ingest.md                ← ingestion prompt (v6)
@@ -81,7 +85,7 @@ Vercel auto-deploy — live app updated within minutes
     └── hawks.jsx                ← single-file React dashboard (no build step)
 ```
 
-**No build step.** Vercel serves `app/hawks.jsx` directly. There is no bundler, no `package.json`, no `node_modules` in the repo.
+**Vite build on deploy.** Vercel runs `npm install` + `vite build` on every push to `main`, bundling `src/main.jsx` → `../app/hawks.jsx` into `dist/`. `node_modules/` and `dist/` are gitignored and only exist at build time. `src/main.jsx` also mounts `<Analytics />` from `@vercel/analytics/react` at the root (enabled April 19).
 
 ---
 
@@ -165,13 +169,14 @@ Single-file React app (~1,800 lines), no build step, deployed to Vercel.
 
 **Data flow:** `fetch("/repository.json")` on mount → `parseData(json)` → `classifyTeams()` → render
 
-**Three tabs (v5 architecture, April 2026):**
+**Four tabs (v5 architecture, April 2026):**
 - **League** — SVG scatter plot (OPS × ERA, interactive hover legend), sortable standings table (RVRH pinned), sortable heat map (gray→amber→red). Desktop: two-column layout at ≥1280px. All elements navigate to Teams State 2.
 - **Teams** — 3-state progressive disclosure:
   - State 1: focal team card grid (threat-sorted, 13 hardcoded teams) + scouted opponents table (4+ games) + limited data accordion. Desktop: master-detail layout.
   - State 2: team briefing — sticky slim header (W-L · ERA · WHIP · last 3 results), 3 drawers (Pitching with outing strips / Lineup sortable table / Team Discipline with fielding, battery, baserunning, situational hitting). Player names tappable.
   - State 3: player intelligence — summary strip, Season/Last10/Last5 filters, sortable game log. Always full-page. Two-way players (pitching + batting data) show a Pitching/Batting toggle; default view set by where the player was tapped (Pitching drawer → pitching view, Lineup drawer → batting view).
 - **Ask** — Claude-powered chat via `/api/chat` Vercel serverless proxy. Only tab that makes API calls. Empty state with 5 coaching-oriented suggestion prompts.
+- **Report** — batch query builder for game logs (added mid-April). Includes "Copy for Sheets" button for clipboard export. Tab label is "Report" singular — hardcoded in `["League", "Teams", "Ask", "Report"]` at the bottom of `App()` in `hawks.jsx`.
 
 **Key analytical functions (do not break):**
 - `hitterThreat(b)` — OBP×40% + SLG×30% + (RBI/H)×15% + Contact×15%; min 8 PA
@@ -181,7 +186,53 @@ Single-file React app (~1,800 lines), no build step, deployed to Vercel.
 - `teamRecord(data, teamId)` — W/L/RS/RA/streak/last5 from game log
 - `buildChatSystem(data)` — pre-aggregates all data into tab-separated context for Ask tab
 
-**Removed in v5:** Matchup tab, Players tab, `matchupExploits()`, `buildKTGSystem()`, file upload UI, Vite build scaffold
+**Removed in v5:** Matchup tab, Players tab, `matchupExploits()`, `buildKTGSystem()`, file upload UI. (`node_modules/` and `dist/` removed from the repo too; the Vite scaffold in `src/` + `package.json` + `vite.config.js` + `index.html` is retained and built by Vercel on deploy.)
+
+---
+
+## The Validator (PC1-PC5) and Triage System
+
+Built out through mid-to-late April 2026. Purpose: audit already-ingested games against their markdown source, surface discrepancies the write-time ingest gate missed, and repair what can be repaired automatically.
+
+### PC1-PC5 checks (`pipeline/validate_core.py`)
+
+One shared library called by both `ingest.py` (at write-time) and `validate.py` (retrospective). Team code resolution flows through the same `config.json` name-patterns registry used by `ingest.py`.
+
+| Check | Verifies |
+|---|---|
+| **PC1** | Pitching outs per team ≥ innings × 3 × 0.85 (catches missing pitcher rows) |
+| **PC2** | Sum of H_Allowed matches opposing team's reported hits (±1 tolerance, ±3 if Section 5 documents a discrepancy) |
+| **PC3** | Every pitcher named in play log appears in Pitching rows |
+| **PC4** | Every batter in play log appears in Batting rows |
+| **PC5** | Sum of PA ≥ 75% of play-log batter appearances or innings × 2.5 (flags dropped rows) |
+
+### Three CLI tools
+
+- **`validate.py`** — retrospective audit. Flags: `[game.md] | --game-id | --all | --since | --until | --verbose | --json`. Read-only. Exits 0/1/2 for pass/fail/parse-error.
+- **`triage.py`** — takes validate's output and buckets failures into categories A-H based on issue type, scope (focal vs opponent), and Section 5 documentation. Processing priority A → B → C → D → E → F → G → H.
+- **`reingest_batch.py`** — auto-repair for Buckets A & B by default (focal team missing pitcher/batter). Snapshots, deletes, re-ingests, re-audits, retries up to N times, restores if still failing. Mandatory Excel backup at `data/backups/` and per-game log at `pipeline/reingest_batch.log`.
+
+### Bucket taxonomy
+
+| Bucket | Scope | Signal | Auto-repair? |
+|---|---|---|---|
+| A | Focal | Missing specific pitcher (PC3 or PC1 zero-outs) | Yes (default) |
+| B | Focal | Missing specific batter (PC4) | Yes (default) |
+| C | Focal | Hit mismatch (PC2), Section 5 **fully** documents | Needs `--force-bucket` |
+| D | Focal | Hit mismatch (PC2), Section 5 **partially** documents | Needs `--force-bucket` |
+| E | Focal | Hit mismatch (PC2), **not** documented | Needs `--force-bucket` |
+| F | Non-focal | Missing pitcher/batter on opponent | Needs `--force-bucket` |
+| G | Any | Multiple issue types or unclassified | Needs `--force-bucket` |
+| H | Any | PC5 only (known parser limitation, low priority) | Not auto-repaired |
+
+### Not in `daily.yml`
+
+The validator is standalone dev/ops tooling. `ingest.py` already runs PC1-PC5 at write-time via `validate_core.py`, so daily runs are pre-validated. The retrospective tools exist because write-time gates catch only the narrowest failures — misattributions that balance at team level, historical backfill games transcribed under older prompt versions, and edge cases where parser limitations masked discrepancies.
+
+### Related parser improvements
+
+- **Skip incomplete PAs** — games that ended mid-at-bat no longer fail parsing; the incomplete PA is dropped, not a fatal error.
+- **Skip phantom pitchers** — validator ignores Pitching rows for pitchers with no play-log appearances (an earlier ingest edge case).
 
 ---
 
@@ -231,6 +282,24 @@ The Anthropic API document block only supports PDF. Attempting to pass the Excel
 ### GitHub PAT workflow scope
 Pushing `.github/workflows/` files requires the `workflow` scope on the GitHub Personal Access Token, separate from general `repo` write access. If a push to the workflows directory fails with a permissions error, regenerate the PAT with `workflow` scope checked.
 
+### Silent Vercel deploy failures (April 18-19, 2026)
+**What happened:** A commit titled "Fix table column alignment in standings and heat map" (`3e2ed79`) refactored the `LeagueHeatMap` from a split-table pattern to a single sticky-thead table. The refactor removed an inner `<div>` wrapper but left its closing `</div>` tag behind, creating an unbalanced JSX tree. esbuild misreads the stray `</div>` as `<` (less-than) followed by a regex literal and dies with "Unterminated regular expression".
+
+**Why it went unnoticed for a week:** Vercel auto-deploys on every push to `main`, but a failed build does not take down production — it just leaves production serving the last green bundle. The failure shows as a red ❌ on the PR/commit and "Error" in the Vercel dashboard, but is invisible to anyone who doesn't look. Every commit from April 18 onward (standings/heat map refactor, Report tab, Player Intelligence toggle, both Analytics attempts) queued up behind this broken build without any of them deploying.
+
+**How it was caught:** An attempt to wire up Vercel Analytics showed the Vercel deployment failing. Running `npm run build` locally at the tip commit reproduced the esbuild error and pointed to the line with the stray `</div>`. Walking commits back with `npm run build` at each one pinpointed `3e2ed79` as the introduction point.
+
+**Lesson:** When a UI change doesn't show up in production, check Vercel deployment status on the tip commit before assuming caching, CDN delays, or client-side issues. `npm run build` locally is a fast way to reproduce any esbuild failure. Going forward, consider wiring `npm run build` into a pre-push hook or GitHub Action check on PRs to main.
+
+### Vercel Analytics setup (April 19, 2026)
+**What works:** `@vercel/analytics/react` mounted once in `src/main.jsx` alongside `<App />`. Dashboard enabled in Vercel project settings. Beacons land at `/_vercel/insights/script.js` (tracker) and `/_vercel/insights/view` (page view). Verified in Incognito Network tab after the broken-build fix shipped.
+
+**Gotchas observed:**
+- The docs' Next.js quickstart uses `@vercel/analytics/next` — wrong for a Vite+React app. Use `@vercel/analytics/react`. `/next` pulls in Next.js router hooks that don't exist here.
+- Do not mount `<Analytics />` twice. An interim attempt mounted it in both `src/main.jsx` and `app/hawks.jsx`; only `src/main.jsx` is canonical.
+- Ad blockers and privacy extensions very commonly block `/_vercel/insights/*`. When verifying the install, use Incognito with extensions off.
+- Preview deploys run in "development mode" and do not beacon to production Analytics — they log to the browser console instead. Production beacons only fire on the production domain.
+
 ---
 
 ## Infrastructure
@@ -259,17 +328,23 @@ Pushing `.github/workflows/` files requires the `workflow` scope on the GitHub P
 - ✅ Verbatim team name preservation — transcribe.md v4.2
 - ✅ Name-based team registry — replaced CODE_ALIASES (April 15); config.json is source of truth for team identity; 13 focal teams + 83 known opponents with name_patterns
 - ✅ NRTH ambiguity resolved — 20 games disambiguated across 5 teams; all future games resolved per-game via name matching
-- ⚠️ A few gate failures pending retry (`.md` exists but not in Excel Game_Log)
+- ✅ Validator system live — `validate_core.py` shared between `ingest.py` (write-time) and `validate.py` (retrospective audit); PC1-PC5 checks; team code resolution through config.json registry
+- ✅ Triage + batch re-ingest tooling — `triage.py` buckets A-H; `reingest_batch.py` auto-repairs Buckets A & B with Excel backup + per-game snapshot/restore
+- ✅ Parser improvements — skip incomplete PAs (mid-at-bat game endings); skip phantom pitchers (zero-appearance entries)
+- 🚧 Triage worklist in progress — `validate.py --all` produces the current backlog; Buckets A & B are auto-repairing; C/D/E (PC2 hit mismatches) and F (non-focal missing players) require manual judgment
+- ⚠️ A few pre-validator gate failures still pending retry (`.md` exists but not in Excel Game_Log)
 - ⚠️ Backfill games transcribed with v4.0 should be spot-checked for misattribution
 
 ### App (v5 redesign — completed April 13–14, 2026)
-- ✅ 3-tab architecture live (League / Teams / Ask)
+- ✅ 4-tab architecture live (League / Teams / Ask / Report)
 - ✅ Desktop two-column layouts at ≥1280px (master-detail on Teams tab)
 - ✅ Interactive scatter plot with hover tooltips and team legend
-- ✅ Sortable standings and heat map with full team names, expand/collapse for 6→13 rows
+- ✅ Sortable standings and heat map with full team names, expand/collapse for 6→13 rows (sticky-thead single-table layout; fixed April 19 after stray `</div>` broke deploys for a week)
 - ✅ 3-tier Teams tab (focal cards, scouted opponents table, limited data accordion)
 - ✅ Team briefing with pitcher outing strips and 3 drawers
-- ✅ Player intelligence with game log filters (Season/Last 10/Last 5)
+- ✅ Player intelligence with game log filters (Season/Last 10/Last 5); Pitching/Batting toggle for two-way players
+- ✅ Report tab — batch query builder for game logs with "Copy for Sheets" clipboard export
+- ✅ Vercel Web Analytics enabled — `@vercel/analytics/react` mounted in `src/main.jsx`; dashboard enabled April 19
 - ✅ Repo cleaned — node_modules/ and dist/ removed (built by Vercel on deploy)
 
 ---
