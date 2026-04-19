@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { Analytics } from "@vercel/analytics/react";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 const num  = v => { const x = parseFloat(v); return isNaN(x) ? 0 : x; };
@@ -2173,6 +2174,7 @@ export default function App() {
           {tab === "Report" && <ReportTab data={data} />}
         </div>
       </div>
+      <Analytics />
     </>
   );
 }
