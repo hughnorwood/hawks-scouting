@@ -245,6 +245,11 @@ def parse_play_log(md_text: str, game_id: Optional[str] = None) -> PlayLog:
 # Case-SENSITIVE: require capital letter at start so we don't match lowercase leading chars (e.g. "her E Ogg")
 PITCHER_IN_DESC_RE = re.compile(r'\b([A-Z]\s[A-Z][A-Za-z\'\-]+(?:\s[A-Z][A-Za-z\'\-]+)?)\s+pitching\b')
 PITCHER_TRANSITION_RE = re.compile(r'\b([A-Z]\s[A-Z][A-Za-z\'\-]+(?:\s[A-Z][A-Za-z\'\-]+)?)\s+in\s+(?:for\s+pitcher|at\s+pitcher)\b')
+# Formal lineup change — signals a real pitcher entry even if no "X pitching" mention exists.
+FORMAL_LINEUP_PITCHER_RE = re.compile(
+    r'Lineup\s+changed[:\s]+([A-Z]\s[A-Z][A-Za-z\'\-]+(?:\s[A-Z][A-Za-z\'\-]+)?)\s+in\s+at\s+pitcher',
+    re.IGNORECASE,
+)
 
 
 def _normalize_pitcher(name: str) -> str:
@@ -293,6 +298,16 @@ def extract_pitcher_appearances(play_log: PlayLog) -> Dict[str, Dict[str, Pitche
 
     - Top-half plays → Home team is pitching (attribute to home's pitcher)
     - Bottom-half plays → Away team is pitching (attribute to away's pitcher)
+
+    Phantom pitcher handling: a name that appears ONLY inside an inline
+    "X in for pitcher Y" substitution chain — never in any play description
+    "X pitching" and never as the target of a formal "Lineup changed: X in at
+    pitcher" entry — is treated as a scorer correction (coach announced a
+    substitution that was entered in error and corrected in-line). Per baseball
+    scoring convention, a pitcher is credited with an appearance only if they
+    face at least one batter. This function skips phantoms so the validator
+    agrees with the baseball-scoring convention that no Pitching row should
+    exist for them, regardless of how ingest.py handled the original emission.
     """
     result: Dict[str, Dict[str, PitcherTally]] = {
         play_log.away_team: {},
@@ -310,28 +325,47 @@ def extract_pitcher_appearances(play_log: PlayLog) -> Dict[str, Dict[str, Pitche
             result[team][pitcher] = PitcherTally(pitcher=pitcher)
         return result[team][pitcher]
 
+    # Pre-scan: build the set of "confirmed" pitcher names — those mentioned
+    # outside of inline substitution chains. A name is confirmed if it appears
+    # in a play description as "X pitching" OR as the target of a formal
+    # "Lineup changed: X in at pitcher" entry. Anything that appears only in a
+    # mid-game "X in for pitcher Y" substitution is a phantom.
+    confirmed: set = set()
+    for play in play_log.plays:
+        m = PITCHER_IN_DESC_RE.search(play.description)
+        if m:
+            confirmed.add(m.group(1).strip())
+        for name in FORMAL_LINEUP_PITCHER_RE.findall(play.notes):
+            confirmed.add(name.strip())
+
     for play in play_log.plays:
         # Pitching team = opposite of batting half
         pitching_team = play_log.home_team if play.half == "Top" else play_log.away_team
         if not pitching_team:
             continue
 
-        # Check for pitcher transition in notes first
-        transition = PITCHER_TRANSITION_RE.search(play.notes)
-        if transition:
-            new_pitcher = transition.group(1).strip()
-            current_pitcher[pitching_team] = new_pitcher
+        # Find all pitcher transitions in this play's notes. Use findall() (not
+        # search()) so a chain like "G Bowen in for pitcher I Benson, G Godfrey in
+        # for pitcher G Bowen" yields both names. Honor the LAST confirmed one —
+        # intermediate unconfirmed names are phantoms and the preceding pitcher's
+        # tenure flows through them until a confirmed replacement appears.
+        transitions = PITCHER_TRANSITION_RE.findall(play.notes)
+        transition_applied = False
+        for name in reversed(transitions):
+            name = name.strip()
+            if name in confirmed:
+                current_pitcher[pitching_team] = name
+                transition_applied = True
+                break
 
         # Check for explicit pitcher name in description
         desc_match = PITCHER_IN_DESC_RE.search(play.description)
         if desc_match:
             explicit = desc_match.group(1).strip()
-            # Don't overwrite if transition already set a newer pitcher
+            # Don't overwrite if a confirmed transition already set a newer pitcher
             if current_pitcher[pitching_team] is None:
                 current_pitcher[pitching_team] = explicit
-            # Trust the explicit mention in the description over transition
-            # only if no transition happened on this play
-            elif not transition:
+            elif not transition_applied:
                 current_pitcher[pitching_team] = explicit
 
         pitcher = current_pitcher[pitching_team]
