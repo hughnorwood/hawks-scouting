@@ -16,3 +16,7 @@ __pycache__/
 # Batch re-ingest artifacts
 data/backups/
 pipeline/reingest_batch.log
+
+# Pipeline notes audit log (runtime artifact; per-machine, never committed)
+pipeline/pipeline_notes.json
+pipeline/pipeline_notes.corrupt-*.json

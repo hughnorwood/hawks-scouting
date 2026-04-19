@@ -122,10 +122,21 @@ class Discrepancy:
 
 
 @dataclass
+class SoftEvent:
+    """A check-passed-but-worth-noting event. Surfaced via ValidationReport so
+    the caller (ingest.py) can forward to the pipeline_notes.json audit layer.
+    Not a discrepancy — these do NOT fail validation."""
+    kind: str          # "PC2_TOLERANCE" | "PC2_SECTION5_MATCH" | "PHANTOM_PITCHER_SKIPPED"
+    team: Optional[str]
+    detail: str
+
+
+@dataclass
 class ValidationReport:
     ok: bool
     discrepancies: List[Discrepancy] = field(default_factory=list)
     summary: str = ""
+    soft_events: List[SoftEvent] = field(default_factory=list)
 
 
 # ─── Parse layer ─────────────────────────────────────────────────────────────
@@ -532,20 +543,28 @@ def cross_check_pitching_outs(data_json: Dict, play_log: PlayLog) -> List[Discre
     return discrepancies
 
 
-def cross_check_pitching_hits_allowed(data_json: Dict, play_log: PlayLog) -> List[Discrepancy]:
+def cross_check_pitching_hits_allowed(data_json: Dict, play_log: PlayLog):
     """PC2 — Sum of H_Allowed for team pitchers == opposing team's hits.
 
     Tolerates known-discrepancy scenarios (Section 5 flags documented in Notes).
     Only flag when the mismatch is > 1 AND not noted as a known discrepancy.
+
+    Returns (discrepancies, soft_events):
+      - discrepancies: list of Discrepancy where diff > threshold (hard fail)
+      - soft_events: list of SoftEvent where diff > 0 but within threshold.
+        Kind is "PC2_SECTION5_MATCH" when Section 5 notes documented the
+        mismatch (expected), otherwise "PC2_TOLERANCE" (unexpected but within
+        the ±1 tolerance band — write proceeded).
     """
-    discrepancies = []
+    discrepancies: List[Discrepancy] = []
+    soft_events: List[SoftEvent] = []
     game_log = data_json.get("game_log", {})
     pitching = data_json.get("pitching", [])
 
     away_h = game_log.get("Away_H")
     home_h = game_log.get("Home_H")
     if away_h is None or home_h is None:
-        return discrepancies
+        return discrepancies, soft_events
 
     # Check if Notes documents a known H discrepancy
     notes = str(game_log.get("Notes", "")).lower()
@@ -573,8 +592,16 @@ def cross_check_pitching_hits_allowed(data_json: Dict, play_log: PlayLog) -> Lis
                 expected=str(expected), actual=str(sum_h),
                 details=f"sum(H_Allowed)={sum_h} vs opposing team hits={expected} (diff={diff})",
             ))
+        elif diff > 0:
+            # Within tolerance — write proceeds. Record for audit.
+            kind = "PC2_SECTION5_MATCH" if has_known_h_discrepancy else "PC2_TOLERANCE"
+            soft_events.append(SoftEvent(
+                kind=kind, team=team,
+                detail=(f"sum(H_Allowed)={sum_h} vs opposing team hits={expected} "
+                        f"(diff={diff}, threshold=±{threshold})"),
+            ))
 
-    return discrepancies
+    return discrepancies, soft_events
 
 
 def cross_check_pitcher_presence(data_json: Dict, play_log: PlayLog) -> List[Discrepancy]:
@@ -620,13 +647,24 @@ def cross_check_pitcher_presence(data_json: Dict, play_log: PlayLog) -> List[Dis
     return discrepancies
 
 
-def cross_check_batter_presence(data_json: Dict, play_log: PlayLog) -> List[Discrepancy]:
+def cross_check_batter_presence(data_json: Dict, play_log: PlayLog):
     """PC4 — Every batter in Batter column must appear in Batting rows.
 
     Uses normalized name comparison. Skips jersey-only teams. Requires the
     name to look like a real name (capital letter + space + capitalized word).
+
+    Margin-player threshold: a missing batter with only 1 or 2 play-log PAs
+    is treated as a soft omission (MARGIN_PLAYER_OMISSION) rather than a hard
+    PC4 failure. This avoids gate-failing games where a bench/pinch appearance
+    was legitimately dropped from the Batting sheet. Three or more PAs still
+    fires PC4 as a hard discrepancy exactly as before.
+
+    Returns (discrepancies, soft_events):
+      - discrepancies: missing batters with >= 3 play-log PAs (hard fail)
+      - soft_events: MARGIN_PLAYER_OMISSION entries for 1-2 PA batters
     """
-    discrepancies = []
+    discrepancies: List[Discrepancy] = []
+    soft_events: List[SoftEvent] = []
     batting = data_json.get("batting", [])
     batter_appearances = extract_batter_appearances(play_log)
 
@@ -647,21 +685,39 @@ def cross_check_batter_presence(data_json: Dict, play_log: PlayLog) -> List[Disc
         playlog_names = {_normalize_pitcher(n) for n in playlog_raw if name_re.match(n)}
 
         missing = playlog_names - json_names
-        if missing:
-            real_missing = []
-            for norm in missing:
-                for raw, tally in batter_appearances[team].items():
-                    if _normalize_pitcher(raw) == norm and tally.pa > 0:
-                        real_missing.append(raw)
-                        break
-            if real_missing:
-                discrepancies.append(Discrepancy(
-                    check="PC4", team=team,
-                    expected=str(sorted(playlog_names)), actual=str(sorted(json_names)),
-                    details=f"batter(s) in play log but not in Batting rows: {', '.join(sorted(real_missing))}",
-                ))
+        if not missing:
+            continue
 
-    return discrepancies
+        # Split missing batters by play-log PA count
+        hard_missing = []   # list of (raw_name, pa) with pa >= 3
+        margin_missing = [] # list of (raw_name, pa) with pa in (1, 2)
+        for norm in missing:
+            for raw, tally in batter_appearances[team].items():
+                if _normalize_pitcher(raw) != norm:
+                    continue
+                if tally.pa >= 3:
+                    hard_missing.append((raw, tally.pa))
+                elif tally.pa >= 1:
+                    margin_missing.append((raw, tally.pa))
+                # pa == 0 → ignored (existing behavior)
+                break
+
+        if hard_missing:
+            names_str = ", ".join(f"{n} (PA={p})" for n, p in sorted(hard_missing))
+            discrepancies.append(Discrepancy(
+                check="PC4", team=team,
+                expected=str(sorted(playlog_names)), actual=str(sorted(json_names)),
+                details=f"batter(s) in play log but not in Batting rows: {names_str}",
+            ))
+
+        for raw, pa in margin_missing:
+            soft_events.append(SoftEvent(
+                kind="MARGIN_PLAYER_OMISSION",
+                team=team,
+                detail=f"batter '{raw}' appeared {pa}x in play log but has no Batting row; below PC4 threshold (3) — not a gate failure",
+            ))
+
+    return discrepancies, soft_events
 
 
 def cross_check_batting_pa(data_json: Dict, play_log: PlayLog) -> List[Discrepancy]:
@@ -704,14 +760,65 @@ def cross_check_batting_pa(data_json: Dict, play_log: PlayLog) -> List[Discrepan
 
 # ─── Orchestrator ────────────────────────────────────────────────────────────
 
+def detect_phantom_pitchers(play_log: PlayLog) -> List[SoftEvent]:
+    """Return a SoftEvent for each pitcher name that appears ONLY inside inline
+    'X in for pitcher Y' substitution chains (never confirmed in a play
+    description or formal 'Lineup changed: X in at pitcher' entry).
+
+    Mirrors the skip logic inside extract_pitcher_appearances so we can surface
+    the skipped names for audit without changing that function's signature.
+    """
+    events: List[SoftEvent] = []
+    confirmed: set = set()
+    seen_transitions: dict = {}  # (team, name) → detail snippet
+
+    for play in play_log.plays:
+        m = PITCHER_IN_DESC_RE.search(play.description)
+        if m:
+            confirmed.add(m.group(1).strip())
+        for name in FORMAL_LINEUP_PITCHER_RE.findall(play.notes):
+            confirmed.add(name.strip())
+
+    for play in play_log.plays:
+        pitching_team = play_log.home_team if play.half == "Top" else play_log.away_team
+        if not pitching_team:
+            continue
+        for name in PITCHER_TRANSITION_RE.findall(play.notes):
+            name = name.strip()
+            key = (pitching_team, name)
+            if key not in seen_transitions:
+                seen_transitions[key] = play.notes.strip()[:160]
+
+    for (team, name), snippet in seen_transitions.items():
+        if name not in confirmed:
+            events.append(SoftEvent(
+                kind="PHANTOM_PITCHER_SKIPPED",
+                team=team,
+                detail=f"pitcher '{name}' named only in inline substitution, never confirmed; skipped. Note: {snippet}",
+            ))
+    return events
+
+
 def run_all_checks(data_json: Dict, play_log: PlayLog) -> ValidationReport:
-    """Run all cross-checks and return a report."""
-    discrepancies = []
+    """Run all cross-checks and return a report (discrepancies + soft events)."""
+    discrepancies: List[Discrepancy] = []
+    soft_events: List[SoftEvent] = []
+
     discrepancies.extend(cross_check_pitching_outs(data_json, play_log))
-    discrepancies.extend(cross_check_pitching_hits_allowed(data_json, play_log))
+
+    pc2_d, pc2_soft = cross_check_pitching_hits_allowed(data_json, play_log)
+    discrepancies.extend(pc2_d)
+    soft_events.extend(pc2_soft)
+
     discrepancies.extend(cross_check_pitcher_presence(data_json, play_log))
-    discrepancies.extend(cross_check_batter_presence(data_json, play_log))
+
+    pc4_d, pc4_soft = cross_check_batter_presence(data_json, play_log)
+    discrepancies.extend(pc4_d)
+    soft_events.extend(pc4_soft)
+
     discrepancies.extend(cross_check_batting_pa(data_json, play_log))
+
+    soft_events.extend(detect_phantom_pitchers(play_log))
 
     ok = len(discrepancies) == 0
     if ok:
@@ -719,4 +826,4 @@ def run_all_checks(data_json: Dict, play_log: PlayLog) -> ValidationReport:
     else:
         summary = f"{len(discrepancies)} cross-check discrepanc{'y' if len(discrepancies)==1 else 'ies'} found."
 
-    return ValidationReport(ok=ok, discrepancies=discrepancies, summary=summary)
+    return ValidationReport(ok=ok, discrepancies=discrepancies, summary=summary, soft_events=soft_events)

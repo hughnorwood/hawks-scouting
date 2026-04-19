@@ -47,6 +47,49 @@ MODEL = "claude-sonnet-4-20250514"
 MAX_TOKENS = 16000
 
 
+# Pipeline notes audit layer (never affects write/gate behavior; I/O failures
+# are swallowed inside log_flag.log_flag).
+try:
+    import log_flag as _log_flag_mod
+except ImportError:
+    _log_flag_mod = None
+
+
+_GAME_ID_RE = re.compile(r'(\d{4}-\d{2}-\d{2})_([A-Z]{3,5})_at_([A-Z]{3,5})')
+
+
+def _log_note(filename, ingest_result, flag_type=None, severity=None,
+              team=None, detail=""):
+    """Wrapper around log_flag.log_flag(): derives game_id/date/teams from the
+    filename stem and records one flag (or a bare entry if flag_type is None).
+    Never raises. Does nothing if log_flag isn't importable or filename doesn't
+    match the Game_ID pattern.
+    """
+    if _log_flag_mod is None or not filename:
+        return
+    m = _GAME_ID_RE.match(filename)
+    if not m:
+        return
+    flags = []
+    if flag_type:
+        flags.append({
+            "flag_type": flag_type,
+            "severity":  severity,  # None → log_flag applies DEFAULT_SEVERITY
+            "team":      team,
+            "detail":    detail,
+        })
+    try:
+        _log_flag_mod.log_flag(
+            game_id=filename,
+            game_date=m.group(1),
+            teams=[m.group(2), m.group(3)],
+            ingest_result=ingest_result,
+            flags=flags,
+        )
+    except Exception:
+        pass
+
+
 def load_prompt():
     """Load prompts/ingest.md verbatim."""
     path = PROMPTS_DIR / "ingest.md"
@@ -167,6 +210,16 @@ def build_game_code_map(game_md_text, registry, filename=None):
             print(f"  [REGISTRY] WARNING: Could not resolve code '{raw_code}'"
                   f"{' (name: ' + repr(team_names[i]) + ')' if i < len(team_names) else ''}. "
                   f"Add to config.json known_opponents to fix.")
+            _name_hint = team_names[i] if i < len(team_names) else ""
+            _log_note(
+                filename,
+                ingest_result="success",  # may be overwritten by later call; the team was preserved
+                flag_type=_log_flag_mod.REGISTRY_UNKNOWN_TEAM if _log_flag_mod else None,
+                team=raw_code,
+                detail=(f"Unresolved team code '{raw_code}'"
+                        + (f" (name hint: {_name_hint!r})" if _name_hint else "")
+                        + " — raw code preserved. Add to config.json known_opponents."),
+            )
             code_map[raw_code] = raw_code
 
     return code_map
@@ -363,6 +416,8 @@ def main():
         if candidate_id in existing_ids:
             print(f"\nDUPLICATE DETECTED: {candidate_id} already exists in the repository.")
             print("No data written — duplicate guard fired correctly.")
+            _log_note(game_md_path.stem, ingest_result="skipped",
+                      detail="Duplicate guard (Python-level): game already in Game_Log.")
             sys.exit(0)
 
     # Call Claude API
@@ -373,6 +428,8 @@ def main():
         m = re.search(r"DUPLICATE\s+DETECTED.*?(?:\n|$)", response_text, re.IGNORECASE)
         print(f"\n{m.group(0).strip() if m else 'Duplicate detected by Claude'}")
         print("No data written — duplicate guard fired correctly.")
+        _log_note(game_md_path.stem, ingest_result="skipped",
+                  detail="Duplicate guard (Claude-level): DUPLICATE DETECTED in API response.")
         sys.exit(0)
 
     # Parse JSON from response
@@ -406,6 +463,7 @@ def main():
     # Check gates (Claude's self-reported tallies)
     gates = data.get("gates", {})
     all_passed = True
+    _failed_gates = []
     for gate_name in ["G1", "G2", "G3", "G4", "G5", "G6"]:
         gate = gates.get(gate_name, {})
         passed = gate.get("pass", False)
@@ -414,10 +472,31 @@ def main():
         print(f"  {gate_name} {status} {value}")
         if not passed:
             all_passed = False
+            _failed_gates.append((gate_name, value))
 
     if not all_passed:
         print("\nGATE FAILURE — not writing to Excel.")
         print(f"Notes: {data.get('notes', '')}")
+        # Audit: one flag per failed gate; single ingest_result="gate_failure" entry
+        if _log_flag_mod is not None:
+            _flags = [{
+                "flag_type": _log_flag_mod.GATE_FAILURE,
+                "severity":  "hard",
+                "team":      None,
+                "detail":    f"{gn} failed (value={val}). Notes: {data.get('notes', '')}",
+            } for gn, val in _failed_gates]
+            m = _GAME_ID_RE.match(game_md_path.stem)
+            if m:
+                try:
+                    _log_flag_mod.log_flag(
+                        game_id=game_md_path.stem,
+                        game_date=m.group(1),
+                        teams=[m.group(2), m.group(3)],
+                        ingest_result="gate_failure",
+                        flags=_flags,
+                    )
+                except Exception:
+                    pass
         sys.exit(1)
 
     # Python-side cross-checks (PC1-PC5): compare Claude's output JSON against
@@ -439,8 +518,58 @@ def main():
                     print("Review discrepancies above. If the failures are legitimate")
                     print("(e.g., jersey-only team, known hit-count discrepancy), re-run with")
                     print("--skip-crosschecks to bypass. Otherwise, fix the markdown or re-ingest.")
+                    # Audit: one GATE_FAILURE flag per discrepancy. Cross-check
+                    # hard-fails are surfaced here (validate_core.py doesn't log
+                    # them itself — per spec).
+                    if _log_flag_mod is not None:
+                        _cc_flags = [{
+                            "flag_type": _log_flag_mod.GATE_FAILURE,
+                            "severity":  "hard",
+                            "team":      d.team,
+                            "detail":    f"{d.check} {d.team}: expected {d.expected}, got {d.actual} ({d.details})",
+                        } for d in report.discrepancies]
+                        m = _GAME_ID_RE.match(game_md_path.stem)
+                        if m:
+                            try:
+                                _log_flag_mod.log_flag(
+                                    game_id=game_md_path.stem,
+                                    game_date=m.group(1),
+                                    teams=[m.group(2), m.group(3)],
+                                    ingest_result="gate_failure",
+                                    flags=_cc_flags,
+                                )
+                            except Exception:
+                                pass
                     sys.exit(1)
                 print("  PC1-PC5 ✅ all cross-checks passed")
+                # Audit: forward any soft events (PC2 tolerance / Section 5
+                # match / phantom pitcher skip) from validate_core to the
+                # pipeline notes. These do NOT block writes.
+                if _log_flag_mod is not None and report.soft_events:
+                    _soft_flags = []
+                    for ev in report.soft_events:
+                        flag_type = getattr(_log_flag_mod, ev.kind, None)
+                        if flag_type is None:
+                            continue
+                        _soft_flags.append({
+                            "flag_type": flag_type,
+                            "severity":  None,  # use DEFAULT_SEVERITY
+                            "team":      ev.team,
+                            "detail":    ev.detail,
+                        })
+                    if _soft_flags:
+                        m = _GAME_ID_RE.match(game_md_path.stem)
+                        if m:
+                            try:
+                                _log_flag_mod.log_flag(
+                                    game_id=game_md_path.stem,
+                                    game_date=m.group(1),
+                                    teams=[m.group(2), m.group(3)],
+                                    ingest_result="success",
+                                    flags=_soft_flags,
+                                )
+                            except Exception:
+                                pass
             else:
                 print("  (cross-checks skipped — no play log rows parsed)")
         except ImportError:
@@ -470,6 +599,11 @@ def main():
         sys.exit(1)
 
     print("\nIngestion complete.")
+
+    # Audit: final success entry. If earlier log_flag calls already created
+    # an entry for this game (e.g. REGISTRY_UNKNOWN_TEAM), this updates
+    # ingest_result to "success" without duplicating flags.
+    _log_note(game_md_path.stem, ingest_result="success")
 
 
 if __name__ == "__main__":
