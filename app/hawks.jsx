@@ -964,7 +964,6 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
           ))}
         </tbody>
       </table>
-      </div>
     </div>
   );
 }
