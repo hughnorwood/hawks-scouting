@@ -14,7 +14,7 @@ const TEAM_NAMES = {
   RVRH: 'River Hill', CNTN: 'Centennial', GLNL: 'Glenelg', HNTN: 'Huntingtown',
   PRKS: 'Parkside', STHR: 'Southern', FLLS: 'Fallston', MDLT: 'Middletown',
   HRFD: 'Hereford', NHRF: 'North Harford', CNTY: 'Century', KTIS: 'Kent Island',
-  LNRC: 'Long Reach',
+  LNRC: 'Long Reach', WLDL: 'Wilde Lake', HMMN: 'Hammond',
 };
 const teamName = id => TEAM_NAMES[id] || id;
 
@@ -633,7 +633,7 @@ function Th({ c, label, s, d, fn, left }) {
 // ─── LEAGUE TAB ─────────────────────────────────────────────────────────────
 
 function LeagueScatterPlot({ data, teams, onTeamClick }) {
-  const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC'];
+  const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC','WLDL','HMMN'];
 
   const plotTeams = useMemo(() => {
     return FOCAL_TEAMS.map(id => {
@@ -783,7 +783,7 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
 }
 
 function StandingsTable({ data, teams, onTeamClick }) {
-  const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC'];
+  const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC','WLDL','HMMN'];
 
   const allRecords = useMemo(() => {
     return FOCAL_TEAMS.map(id => {
@@ -873,7 +873,7 @@ function heatCell(value, min, max, lowerIsBetter) {
 }
 
 function LeagueHeatMap({ data, teams, onTeamClick }) {
-  const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC'];
+  const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC','WLDL','HMMN'];
 
   const heatRows = useMemo(() => {
     const rows = FOCAL_TEAMS.map(id => {
@@ -985,7 +985,7 @@ function LeagueTab({ data, teams, onTeamClick }) {
 // ─── TEAMS TAB ──────────────────────────────────────────────────────────────
 
 function classifyTeamsForTab(data) {
-  const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC'];
+  const FOCAL_TEAMS = ['RVRH','CNTN','GLNL','HNTN','PRKS','STHR','FLLS','MDLT','HRFD','NHRF','CNTY','KTIS','LNRC','WLDL','HMMN'];
   const allCodes = [...new Set([
     ...data.batting.map(r => r.Team),
     ...data.pitching.map(r => r.Team),
