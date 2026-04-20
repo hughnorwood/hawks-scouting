@@ -12,7 +12,9 @@
     { "name": "North Harford", "gc_team_id": "lwW88NNGvnAE", "code": "NHRF", "name_patterns": ["north harford"] },
     { "name": "Century",       "gc_team_id": "67lmIIVaxWMx", "code": "CNTY", "name_patterns": ["century"] },
     { "name": "Kent Island",   "gc_team_id": "HosNhxk1NroJ", "code": "KTIS", "name_patterns": ["kent island"] },
-    { "name": "Long Reach",    "gc_team_id": "6Q2VVSbv2fQQ", "code": "LNRC", "name_patterns": ["long reach"] }
+    { "name": "Long Reach",    "gc_team_id": "6Q2VVSbv2fQQ", "code": "LNRC", "name_patterns": ["long reach"] },
+    { "name": "Wilde Lake",    "gc_team_id": "HZBbh1Lf6XtW", "code": "WLDL", "name_patterns": ["wilde lake"] },
+    { "name": "Hammond",       "gc_team_id": "vF8BfQGb71MV", "code": "HMMN", "name_patterns": ["hammond"] }
   ],
   "known_opponents": [
     { "code": "ANNP", "name_patterns": ["annapolis"] },
@@ -47,7 +49,6 @@
     { "code": "GRST", "name_patterns": ["gerstell"] },
     { "code": "GRTM", "name_patterns": ["great mills"] },
     { "code": "GVRN", "name_patterns": ["governor thomas johnson"] },
-    { "code": "HMMN", "name_patterns": ["hammond"] },
     { "code": "HRFT", "name_patterns": ["harford tech"] },
     { "code": "HVRD", "name_patterns": ["havre de grace"] },
     { "code": "HWRD", "name_patterns": ["howard"] },
@@ -91,7 +92,6 @@
     { "code": "TWSN", "name_patterns": ["towson"] },
     { "code": "URBN", "name_patterns": ["urbana"] },
     { "code": "WCMC", "name_patterns": ["wicomico"] },
-    { "code": "WLDL", "name_patterns": ["wilde lake"] },
     { "code": "WLKR", "name_patterns": ["walkersville"] },
     { "code": "WLLM", "name_patterns": ["williamsport"] },
     { "code": "WLTR", "name_patterns": ["walters", "walter johnson"] },
