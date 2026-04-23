@@ -106,7 +106,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           # Stage new/changed pipeline output files
-          git add -A games/ data/ public/repository.json
+          # public/games/ is the deployed mirror consumed by the app — must stay in sync with games/
+          git add -A games/ data/ public/repository.json public/games/
 
           if git diff --cached --quiet; then
             echo "No new data to commit — exiting cleanly."
