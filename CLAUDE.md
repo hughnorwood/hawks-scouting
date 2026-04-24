@@ -303,19 +303,19 @@ python pipeline/reingest_batch.py --retries N
 ## App Architecture
 
 **File:** `app/hawks.jsx` (~1,800 lines, single source of truth)
-**Framework:** React (single file, no build step — deployed as-is to Vercel)
+**Framework:** React (single file — build handled by Vercel on deploy via `npm install` + `vite build`; no local build step required)
 **Data source:** `fetch("/repository.json")` on mount
 **Design principle:** "The app observes. The coach concludes." No interpretive text outside the Ask tab.
 
 ### Key Constants
-- `FOCAL_TEAMS` — hardcoded array of 13 team codes used by League visualizations and Teams card grid
+- `FOCAL_TEAMS` — hardcoded array of 15 team codes used by League visualizations and Teams card grid
 - `TEAM_NAMES` — map of team codes to display names (e.g., `RVRH → "River Hill"`)
 - `DESKTOP_BP = 1280` — breakpoint for two-column desktop layout
 
 ### Key App Functions (do not break these)
 - `parseData(json)` — receives JSON object, returns `{ gameLog, batting, pitching, fielding }`
-- `classifyTeams(data)` — identifies focal teams (≥4 games as Focal_Team) vs. opponents
-- `classifyTeamsForTab(data)` — splits all teams into focal / scouted (4+ games) / limited (<4 games) for Teams tab
+- `classifyTeams(data)` — dynamically derives focal/opponent split from Game_Log (≥4 appearances as `Focal_Team`). **Used only by `buildChatSystem` for Ask tab context.** Not used by any UI component.
+- `classifyTeamsForTab(data)` — splits all teams into focal (hardcoded `FOCAL_TEAMS` array) / scouted (4+ game appearances) / limited (<4 games). Drives all Teams tab UI: focal card grid, Scouted Opponents table, and limited data accordion. Called internally by `TeamsCardGrid`; the `teams` prop passed from `App` is not used for UI rendering.
 - `aggBatting(rows)` — aggregates raw batting rows into per-player season totals
 - `aggPitching(rows)` — aggregates raw pitching rows into per-player season totals
 - `teamSummary(data, teamId)` — full team stats object
@@ -326,7 +326,7 @@ python pipeline/reingest_batch.py --retries N
 - `playoffThreat(data, teamId)` — composite threat score; returns 4 internal tiers mapped to 3 UI tiers (THREAT ≥55, MID 25-54, WEAK <25)
 - `defensiveTargets(data, teamId)` — error counts per fielder
 - `opponentRotation(data, teamId)` — starting pitcher patterns
-- `buildChatSystem(data)` — builds full data context string for Ask tab Claude calls
+- `buildChatSystem(data)` — builds full data context string for Ask tab Claude calls; uses `classifyTeams(data)` to enumerate teams
 - `heatCell(value, min, max, lowerIsBetter)` — heat map cell color (gray→amber→red scale)
 - `threatTierUI(score)` — maps threat score to 3-tier display colors
 - `useWindowWidth()` — hook for responsive desktop/mobile layout switching
@@ -444,7 +444,7 @@ Vercel auto-deploys on push to main — no additional step needed.
 - **Team code resolution is name-based.** `ingest.py` resolves raw team codes (NRTH, MDDL, etc.) to canonical codes (NHRF, MDLT, etc.) by matching full team names from the markdown header against `name_patterns` in `config.json`. This replaced the old `CODE_ALIASES` dict on April 15, 2026. The old system couldn't handle ambiguous codes like NRTH (5 different teams). The new system resolves per-game based on the actual team name.
 - **Unknown teams produce loud warnings.** If `ingest.py` encounters a team name not in the registry, it prints `[REGISTRY] WARNING` and preserves the raw code. Add the team to `config.json` `known_opponents` and retry.
 - **The Excel filename is `RiverHill_Repository_Master.xlsx`** — not `RiverHill_Repository.xlsx`.
-- **Focal team list is hardcoded** in the app as `FOCAL_TEAMS` (15 teams as of April 21, 2026). The League scatter plot, standings table, and heat map all filter to this list. The `classifyTeams()` function still derives focal teams dynamically for the Ask tab's data context, but the UI components use the hardcoded array. The array appears in **5 places** in `app/hawks.jsx` — when adding a team, update all of them (use `replace_all` in Edit).
+- **Focal team list is hardcoded** in the app as `FOCAL_TEAMS` (15 teams as of April 21, 2026). The League scatter plot, standings table, and heat map all filter to this list. The `classifyTeams()` function derives focal teams dynamically for the Ask tab's data context only; all UI components use the hardcoded array instead. The array appears in **5 places** in `app/hawks.jsx`: (1) `TEAM_NAMES` map at file top, (2) `LeagueScatterPlot`, (3) `StandingsTable`, (4) `LeagueHeatMap`, (5) `classifyTeamsForTab`. When adding a team, update all five (use `replace_all` in Edit).
 - **`public/games/` must stay synced with `games/`.** The app fetches per-game markdowns from `/games/{id}.md` on the deployed site, which is served from `public/games/`. `export.py` copies games from `games/` to `public/games/` after each successful ingest, and `.github/workflows/daily.yml` stages `public/games/` in its `git add` (added April 24, 2026). Prior to that fix, 46 files accumulated untracked for weeks — games whose `.md` was present in Excel but missing from `public/games/` would 404 in the app.
 - **Gate failures can stem from miscounted Section 5, not bad data.** When `ingest.py` gates fail on hit count discrepancy, check whether Section 5's verification hit list matches the Structured Play Log Outcome column. Claude sometimes miscounts Section 5 at transcription time (omitted plays, half-inning mix-ups, wrong team attribution) while the actual Outcome column is correct. Fixing the Section 5 hit list to match play log outcomes, then re-ingesting, is often enough to land the game. If play log Outcomes truly disagree with GC-confirmed totals, a play's Outcome column may need to be edited (e.g., reach-on-error that the official scorer credited as a single).
 - **Ingested Game_ID may differ from `.md` filename** when aliases resolve at ingest time. The scraper names `.md` files with the raw GC code (e.g., `2026-04-13_PNTR_at_HRFR.md`), but the registry resolves HRFR→HRFD before writing Excel, so the Game_Log row becomes `2026-04-13_PNTR_at_HRFD`. When comparing `games/*.md` against Game_Log for missing ingestions, normalize through the alias map. Known aliases observed in the wild: HRFR→HRFD, MDDL→MDLT, KNTS→KTIS, LNGR→LNRC, MTHB→MT.H, STMC→ST.M, CMLW→CML.

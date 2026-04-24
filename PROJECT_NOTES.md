@@ -6,7 +6,7 @@ For Claude Code build instructions, see CLAUDE.md.*
 
 ## What This Project Is
 
-A fully automated baseball scouting pipeline and live dashboard for the RiverHill Hawks high school baseball program. It tracks River Hill and 12 other focal teams across a competitive Maryland high school league.
+A fully automated baseball scouting pipeline and live dashboard for the RiverHill Hawks high school baseball program. It tracks River Hill and 14 other focal teams across a competitive Maryland high school league.
 
 **End users:** Coaches and scouts — non-technical. They access a live Vercel web app and expect current data after every game. They never touch files, uploads, or any part of the pipeline.
 
@@ -64,7 +64,7 @@ Vercel auto-deploy — live app updated within minutes
 │   ├── chat.js                  ← Vercel serverless proxy for Ask tab
 │   └── ktg.js                   ← legacy proxy (unused by v5 app)
 ├── pipeline/
-│   ├── config.json              ← all 13 focal teams with GC IDs and app codes
+│   ├── config.json              ← all 15 focal teams with GC IDs and app codes
 │   ├── scrape.py                ← Playwright scraper
 │   ├── transcribe.py            ← transcription API call
 │   ├── ingest.py                ← ingestion API call + Python Excel I/O (runs PC1-PC5 at write-time)
@@ -74,7 +74,7 @@ Vercel auto-deploy — live app updated within minutes
 │   ├── triage.py                ← standalone CLI: classify validator failures into buckets A-H
 │   └── reingest_batch.py        ← standalone CLI: batch retry/repair for Buckets A & B
 ├── prompts/
-│   ├── transcribe.md            ← transcription prompt (v4.1)
+│   ├── transcribe.md            ← transcription prompt (v4.2)
 │   └── ingest.md                ← ingestion prompt (v6)
 ├── games/                       ← all Game_ID.md files, git-tracked permanently
 ├── data/
@@ -82,7 +82,7 @@ Vercel auto-deploy — live app updated within minutes
 ├── public/
 │   └── repository.json          ← fetched by app on mount
 └── app/
-    └── hawks.jsx                ← single-file React dashboard (no build step)
+    └── hawks.jsx                ← single-file React dashboard
 ```
 
 **Vite build on deploy.** Vercel runs `npm install` + `vite build` on every push to `main`, bundling `src/main.jsx` → `../app/hawks.jsx` into `dist/`. `node_modules/` and `dist/` are gitignored and only exist at build time. `src/main.jsx` also mounts `<Analytics />` from `@vercel/analytics/react` at the root (enabled April 19).
@@ -138,7 +138,7 @@ This is the unique key everywhere: Excel Game_Log, markdown filename, and duplic
 | Wilde Lake | `HZBbh1Lf6XtW` | `WLDL` |
 | Hammond | `vF8BfQGb71MV` | `HMMN` |
 
-RVRH is the primary focal team. The app classifies a team as "focal" if it appears ≥4 times as `Focal_Team` in Game_Log. Wilde Lake and Hammond were promoted from `known_opponents` to `focal_teams` on April 21, 2026; their full season was backfilled via the daily cron plus targeted manual ingest passes.
+RVRH is the primary focal team. Wilde Lake and Hammond were promoted from `known_opponents` to `focal_teams` on April 21, 2026; their full season was backfilled via the daily cron plus targeted manual ingest passes.
 
 ---
 
@@ -146,7 +146,7 @@ RVRH is the primary focal team. The app classifies a team as "focal" if it appea
 
 These are the heart of the pipeline. They are mature and should not be modified without careful testing and a version bump.
 
-### `prompts/transcribe.md` — v4.1
+### `prompts/transcribe.md` — v4.2
 Converts raw GameChanger play-by-play text into a structured 5-section markdown document:
 1. Game Header
 2. Reported Team Totals
@@ -155,6 +155,8 @@ Converts raw GameChanger play-by-play text into a structured 5-section markdown 
 5. Data Integrity Flags
 
 **v4.1 addition:** Explicit rule that the active batter is always the player named in the play description, not any adjacent "next batter" header. GC logs show the next batter's name as a header immediately before the preceding batter's final play — Claude was misreading this.
+
+**v4.2 addition:** Verbatim team name preservation rule: full names must be copied exactly from GameChanger, not abbreviated. Required for name-based team registry.
 
 ### `prompts/ingest.md` — v6
 Reads the structured markdown and extracts raw counting stats into JSON rows for each sheet. Runs 6 verification gates (G1-G6) comparing hit and run tallies against reported team totals. Enforces locked schema. Handles edge cases: courtesy runners, embedded SB/CS in pitch sequences, non-consecutive pitching stints, scorer corrections.
@@ -165,16 +167,24 @@ Reads the structured markdown and extracts raw counting stats into JSON rows for
 
 ## The App (hawks.jsx) — v5
 
-Single-file React app (~1,800 lines), no build step, deployed to Vercel.
+Single-file React app (~1,800 lines); Vercel handles the build via `npm install` + `vite build` on each deploy.
 
 **Design principle:** "The app observes. The coach concludes." No interpretive text outside the Ask tab. Data labels and stat abbreviations only.
 
-**Data flow:** `fetch("/repository.json")` on mount → `parseData(json)` → `classifyTeams()` → render
+**Data flow:** `fetch("/repository.json")` on mount → `parseData(json)` → render
+
+### Team classification — two separate functions with different purposes
+
+- **`classifyTeams(data)`** — dynamically derives focal/opponent split from Game_Log (≥4 appearances as `Focal_Team`). Used **only** by `buildChatSystem` to assemble the Ask tab's Claude context. Not used by any UI component.
+
+- **`classifyTeamsForTab(data)`** — splits all teams into focal (hardcoded `FOCAL_TEAMS` array of 15 codes) / scouted (4+ game appearances) / limited (<4 games). Drives **all Teams tab UI**: the focal card grid, the Scouted Opponents table, and the limited data accordion. Called internally by `TeamsCardGrid`; the `teams` prop passed from `App` via `classifyTeams` is not used for UI rendering.
+
+The hardcoded `FOCAL_TEAMS` array appears in 5 places in hawks.jsx: (1) `TEAM_NAMES` map at file top, (2) `LeagueScatterPlot`, (3) `StandingsTable`, (4) `LeagueHeatMap`, (5) `classifyTeamsForTab`. Update all five when adding a team.
 
 **Four tabs (v5 architecture, April 2026):**
 - **League** — SVG scatter plot (OPS × ERA, interactive hover legend), sortable standings table (RVRH pinned), sortable heat map (gray→amber→red). Desktop: two-column layout at ≥1280px. All elements navigate to Teams State 2.
 - **Teams** — 3-state progressive disclosure:
-  - State 1: focal team card grid (threat-sorted, 13 hardcoded teams) + scouted opponents table (4+ games) + limited data accordion. Desktop: master-detail layout.
+  - State 1: focal team card grid (threat-sorted, 15 hardcoded teams) + scouted opponents table (4+ games, via `classifyTeamsForTab`) + limited data accordion. Desktop: master-detail layout.
   - State 2: team briefing — sticky slim header (W-L · ERA · WHIP · last 3 results), 3 drawers (Pitching with outing strips / Lineup sortable table / Team Discipline with fielding, battery, baserunning, situational hitting). Player names tappable.
   - State 3: player intelligence — summary strip, Season/Last10/Last5 filters, sortable game log. Always full-page. Two-way players (pitching + batting data) show a Pitching/Batting toggle; default view set by where the player was tapped (Pitching drawer → pitching view, Lineup drawer → batting view).
 - **Ask** — Claude-powered chat via `/api/chat` Vercel serverless proxy. Only tab that makes API calls. Empty state with 5 coaching-oriented suggestion prompts.
@@ -186,7 +196,7 @@ Single-file React app (~1,800 lines), no build step, deployed to Vercel.
 - `playoffThreat(data, teamId)` — composite threat score; 4 internal tiers mapped to 3 UI tiers (THREAT ≥55, MID 25-54, WEAK <25)
 - `defensiveTargets(data, teamId)` — error counts per fielder
 - `teamRecord(data, teamId)` — W/L/RS/RA/streak/last5 from game log
-- `buildChatSystem(data)` — pre-aggregates all data into tab-separated context for Ask tab
+- `buildChatSystem(data)` — pre-aggregates all data into tab-separated context for Ask tab; uses `classifyTeams(data)` to enumerate teams
 
 **Removed in v5:** Matchup tab, Players tab, `matchupExploits()`, `buildKTGSystem()`, file upload UI. (`node_modules/` and `dist/` removed from the repo too; the Vite scaffold in `src/` + `package.json` + `vite.config.js` + `index.html` is retained and built by Vercel on deploy.)
 
@@ -280,7 +290,7 @@ G1-G6 verify team hit and run totals. They cannot catch: stats correctly totaled
 
 **Fix pattern:** For each stuck game, parse the Structured Play Log Outcome column (counting `Single`/`Double`/`Triple`/`Home Run`) and compare against Section 5's claim. When they diverge, correct Section 5 (usually by adding an omitted play, removing a mis-attributed one, or fixing half-inning assignments). Then re-ingest. In cases where the play log Outcome itself disagrees with GC's official box score (e.g., "Error" where GC credits a Single via reach-on-error), edit the Outcome column to match GC.
 
-**Lesson:** When a gate failure seems persistent, don't assume bad data. Check Section 5 arithmetic first — it's often the parser artifact, not the source data. A small helper script scanning Outcome column counts per half (see approach used in April 24 session) reveals miscounts quickly.
+**Lesson:** When a gate failure seems persistent, don't assume bad data. Check Section 5 arithmetic first — it's often the parser artifact, not the source data. A small helper script scanning Outcome column counts per half reveals miscounts quickly.
 
 **Scoring judgment caveat:** GameChanger's official scorer and Claude's transcription sometimes disagree on reach-on-error vs single. The official scorer's call is authoritative — if the user visually confirms from GC that a play is a hit, edit the Outcome column to `Single` and keep the error in the description for runner advancement.
 
@@ -301,7 +311,7 @@ Pushing `.github/workflows/` files requires the `workflow` scope on the GitHub P
 ### Silent Vercel deploy failures (April 18-19, 2026)
 **What happened:** A commit titled "Fix table column alignment in standings and heat map" (`3e2ed79`) refactored the `LeagueHeatMap` from a split-table pattern to a single sticky-thead table. The refactor removed an inner `<div>` wrapper but left its closing `</div>` tag behind, creating an unbalanced JSX tree. esbuild misreads the stray `</div>` as `<` (less-than) followed by a regex literal and dies with "Unterminated regular expression".
 
-**Why it went unnoticed for a week:** Vercel auto-deploys on every push to `main`, but a failed build does not take down production — it just leaves production serving the last green bundle. The failure shows as a red ❌ on the PR/commit and "Error" in the Vercel dashboard, but is invisible to anyone who doesn't look. Every commit from April 18 onward (standings/heat map refactor, Report tab, Player Intelligence toggle, both Analytics attempts) queued up behind this broken build without any of them deploying.
+**Why it went unnoticed for a week:** Vercel auto-deploys on every push to `main`, but a failed build does not take down production — it just leaves production serving the last green bundle. The failure shows as a red ❌ on the PR/commit and "Error" in the Vercel dashboard, but is invisible to anyone who doesn't look. Every commit from April 18 onward queued up behind this broken build without any of them deploying.
 
 **How it was caught:** An attempt to wire up Vercel Analytics showed the Vercel deployment failing. Running `npm run build` locally at the tip commit reproduced the esbuild error and pointed to the line with the stray `</div>`. Walking commits back with `npm run build` at each one pinpointed `3e2ed79` as the introduction point.
 
@@ -358,7 +368,7 @@ Pushing `.github/workflows/` files requires the `workflow` scope on the GitHub P
 - ✅ 4-tab architecture live (League / Teams / Ask / Report)
 - ✅ Desktop two-column layouts at ≥1280px (master-detail on Teams tab)
 - ✅ Interactive scatter plot with hover tooltips and team legend
-- ✅ Sortable standings and heat map with full team names, expand/collapse for 6→13 rows (sticky-thead single-table layout; fixed April 19 after stray `</div>` broke deploys for a week)
+- ✅ Sortable standings and heat map with full team names, expand/collapse for 6→15 rows (sticky-thead single-table layout; fixed April 19 after stray `</div>` broke deploys for a week)
 - ✅ 3-tier Teams tab (focal cards, scouted opponents table, limited data accordion)
 - ✅ Team briefing with pitcher outing strips and 3 drawers
 - ✅ Player intelligence with game log filters (Season/Last 10/Last 5); Pitching/Batting toggle for two-way players
