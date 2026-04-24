@@ -209,12 +209,12 @@
 ### Mandatory Verification — Hit Totals
 
 **Long Reach hits from play log:**
-Singles: #1, #2, #17, #18, #34, #37, #38, #52, #62 (9 hits)
+Singles: #1, #2, #17, #18, #34, #37, #38, #50, #52, #62 (10 hits)
 Doubles: #60, #68, #69 (3 hits)  
 Sacrifice Fly: #19 (1 hit - productive out, not counted as hit)
-**Total: 12 hits**
+**Total: 13 hits**
 **Reported team H total: 13**
-**Conflict: Play log shows 12 hits, reported total is 13.**
+**Match. (Section 5 count was corrected 2026-04-23 to include play #50 L Plummer Single, which was omitted from the original verification.)**
 
 **Mt. Hebron hits from play log:**
 Singles: #32, #41, #45, #47 (4 hits)

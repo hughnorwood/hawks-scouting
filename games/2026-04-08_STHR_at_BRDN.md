@@ -194,11 +194,11 @@
 ### Mandatory Verification — Hit Totals
 
 **Hits from play log:**
-- Southern: plays #1, #9, #11, #20, #52, #53, #60 (7 hits)
+- Southern: plays #1, #9, #11, #20, #52, #53, #60, #72 (8 hits)
 - Broadneck: plays #17, #25, #28, #34, #36, #37, #45, #46, #50, #62, #65, #70 (12 hits)
 
 **Reported team H totals:** Southern 8, Broadneck 12
-**Match status:** Conflict - Southern shows 7 hits in play log vs 8 reported, Broadneck matches at 12.
+**Match status:** Match. (Section 5 count was corrected 2026-04-23 to include play #72 N Youmans Single, which was omitted from the original verification.)
 
 ### Mandatory Verification — Errors
 

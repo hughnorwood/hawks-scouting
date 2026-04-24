@@ -208,9 +208,9 @@
 - HWRD: Play log sum = 8 runs (innings 1-7: 0+0+0+3+5+0+0), Line score = 8 runs, Team R total = 8. **Match.**
 
 **Hit Totals Verification:**
-LNRC hits by play number: #3, #9, #11, #21, #28, #32, #34, #36, #40, #45, #46, #50 = 12 hits. Reported team H total = 11. **Conflict - Play log shows 12 hits, team total shows 11.**
+LNRC hits by play number: #3, #9, #11, #21, #28, #32, #34, #36, #45, #46, #50 = 11 hits. Reported team H total = 11. **Match. (Section 5 count was corrected 2026-04-23: play #40 was a bottom-half HWRD play incorrectly listed under LNRC.)**
 
-HWRD hits by play number: #13, #15, #26, #40, #43, #61 = 6 hits. Reported team H total = 7. **Conflict - Play log shows 6 hits, team total shows 7.**
+HWRD hits by play number: #13, #15, #26, #40, #43, #61, #77 = 7 hits. Reported team H total = 7. **Match. (Section 5 count was corrected 2026-04-23 to include play #77 C Parise Double, which was omitted from the original verification.)**
 
 **Error Totals Verification:**
 LNRC errors: Play #59 (error by catcher S Stewart) = 1 error. Reported team E total = 5. **Conflict - Play log shows 1 error, team total shows 5.**
