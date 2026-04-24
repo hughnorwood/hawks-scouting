@@ -16,7 +16,7 @@ const TEAM_NAMES = {
   HRFD: 'Hereford', NHRF: 'North Harford', CNTY: 'Century', KTIS: 'Kent Island',
   LNRC: 'Long Reach', WLDL: 'Wilde Lake', HMMN: 'Hammond',
 };
-const teamName = id => TEAM_NAMES[id] || id;
+const teamName = (id, teams = {}) => TEAM_NAMES[id] || teams[id] || id;
 
 const DESKTOP_BP = 1280;
 
@@ -32,7 +32,7 @@ function useWindowWidth() {
 
 // ─── parsing ──────────────────────────────────────────────────────────────────
 function parseData(json) {
-  return { gameLog: json.gameLog || [], batting: json.batting || [], pitching: json.pitching || [], fielding: json.fielding || [], roster: json.roster || [] };
+  return { gameLog: json.gameLog || [], batting: json.batting || [], pitching: json.pitching || [], fielding: json.fielding || [], roster: json.roster || [], teams: json.teams || {} };
 }
 
 function classifyTeams(data) {
@@ -284,8 +284,13 @@ function buildChatSystem(data) {
         KBB: fix1(clamp(r.KBB, 20)), KPct: pct(r.KPct), BBPct: pct(r.BBPct) }))
   ).sort((a, b) => b.Outs - a.Outs);
 
+  const teamNameRows = teams.all.map(id => ({ Code: id, Name: teamName(id, data.teams) }));
+
   return `HS baseball analytics assistant. All batting and pitching stats are pre-aggregated season totals — answer directly from this data, do not re-derive from raw rows. Show brief reasoning only when calculating across multiple players.
 Formulas if needed: AVG=H/AB OBP=(H+BB+HBP)/PA SLG=(1B+2×2B+3×3B+4×HR)/AB OPS=OBP+SLG IP=Outs/3 WHIP=(H+BB)/IP ERA=R×9/IP
+
+=== TEAM NAMES (refer to teams by full name in your answers) ===
+${tab(teamNameRows, ["Code","Name"])}
 
 === TEAM SUMMARIES ===
 ${tab(teamRows, ["Team","Type","W","L","G","ERA","WHIP","KBB","KPct","BBPct","AVG","OBP","SLG","OPS","SB","HR","Errors"])}
@@ -742,7 +747,7 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
             return (
               <g>
                 <rect x={tx} y={ty} width={130} height={58} fill="white" stroke="#C8D5E8" strokeWidth={1} rx={6} filter="drop-shadow(0 2px 4px rgba(0,0,0,0.12))" />
-                <text x={tx + 10} y={ty + 18} fontSize={12} fontWeight={700} fill="#001E50" fontFamily="Nunito Sans, sans-serif">{teamName(t.id)}</text>
+                <text x={tx + 10} y={ty + 18} fontSize={12} fontWeight={700} fill="#001E50" fontFamily="Nunito Sans, sans-serif">{teamName(t.id, data.teams)}</text>
                 <text x={tx + 10} y={ty + 34} fontSize={11} fill="#3A5070" fontFamily="Nunito Sans, sans-serif">{`${t.W}\u2013${t.L} \u00b7 ERA ${fix2(t.era)}`}</text>
                 <text x={tx + 10} y={ty + 50} fontSize={11} fill="#3A5070" fontFamily="Nunito Sans, sans-serif">{`OPS ${avg3(t.ops)}`}</text>
               </g>
@@ -773,7 +778,7 @@ function LeagueScatterPlot({ data, teams, onTeamClick }) {
               <span style={{
                 fontSize: 12, fontWeight: t.id === "RVRH" ? 700 : 500,
                 color: "var(--text)", fontFamily: "Nunito Sans, sans-serif", whiteSpace: "nowrap",
-              }}>{teamName(t.id)}</span>
+              }}>{teamName(t.id, data.teams)}</span>
             </div>
           ))}
         </div>
@@ -804,7 +809,7 @@ function StandingsTable({ data, teams, onTeamClick }) {
 
   const renderRow = (t, cls) => (
     <tr key={t.id} className={cls} onClick={() => onTeamClick(t.id)}>
-      <td className="td-name">{teamName(t.id)}</td>
+      <td className="td-name">{teamName(t.id, data.teams)}</td>
       <td className="td-r" style={numStyle}>{t.W}</td>
       <td className="td-r" style={numStyle}>{t.L}</td>
       <td className="td-r" style={numStyle}>{t.RS}</td>
@@ -955,7 +960,7 @@ function LeagueHeatMap({ data, teams, onTeamClick }) {
         <tbody>
           {sortedHeatRows.map(t => (
             <tr key={t.id} className={t.id === "RVRH" ? "heatmap-rvrh" : ""} onClick={() => onTeamClick(t.id)}>
-              <td className="td-name">{teamName(t.id)}</td>
+              <td className="td-name">{teamName(t.id, data.teams)}</td>
               <td className="td-r" style={cellStyle(t.era, ranges.eraR.min, ranges.eraR.max, true)}>{fix2(t.era)}</td>
               <td className="td-r" style={cellStyle(t.ops, ranges.opsR.min, ranges.opsR.max, false)}>{avg3(t.ops)}</td>
               <td className="td-r" style={cellStyle(t.errG, ranges.errR.min, ranges.errR.max, true)}>{fix1(t.errG)}</td>
@@ -1058,7 +1063,7 @@ function TeamsCardGrid({ data, teams, onTeamClick, activeTeam, desktopMode, righ
             <div key={c.id} className={`team-card${activeTeam === c.id ? " active" : ""}`}
               style={{ background: tier.bg, color: tier.textColor }}
               onClick={() => onTeamClick(c.id)}>
-              <div className="team-card-name">{teamName(c.id)}</div>
+              <div className="team-card-name">{teamName(c.id, data.teams)}</div>
               <div className="team-card-stats">
                 <span>{c.W}-{c.L}</span>
                 <span>{fix2(c.ERA)} ERA</span>
@@ -1105,7 +1110,7 @@ function TeamsCardGrid({ data, teams, onTeamClick, activeTeam, desktopMode, righ
               <tbody>
                 {sortedScouted.map(t => (
                   <tr key={t.id} onClick={() => onTeamClick(t.id)} style={{ cursor: "pointer" }}>
-                    <td className="td-name" style={{ fontWeight: 600 }}>{teamName(t.id)}</td>
+                    <td className="td-name" style={{ fontWeight: 600 }}>{teamName(t.id, data.teams)}</td>
                     <td className="td-r">{t.G}</td>
                     <td className="td-r">{t.W}</td>
                     <td className="td-r">{t.L}</td>
@@ -1143,7 +1148,7 @@ function TeamsCardGrid({ data, teams, onTeamClick, activeTeam, desktopMode, righ
                       borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--text)",
                       transition: "all .12s",
                     }}>
-                    {teamName(id)}
+                    {teamName(id, data.teams)}
                     <span style={{
                       fontSize: 10, fontWeight: 700, color: "var(--muted)", background: "var(--s3)",
                       borderRadius: 3, padding: "1px 5px",
@@ -1217,7 +1222,7 @@ function TeamBriefing({ data, teamId, drawerState, setDrawerState, onPlayerClick
       <button className="back-btn" onClick={onBack}>{"← Back to Teams"}</button>
 
       <div className="briefing-header">
-        <div className="briefing-name">{teamName(teamId)}</div>
+        <div className="briefing-name">{teamName(teamId, data.teams)}</div>
         <div className="briefing-games">{gamesScouted} games scouted</div>
       </div>
 
@@ -1462,7 +1467,7 @@ function PlayerIntelligence({ data, playerName, teamId, defaultView, onBack }) {
 
   return (
     <div>
-      <button className="back-btn" onClick={onBack}>{"← Back to "}{teamName(teamId)}</button>
+      <button className="back-btn" onClick={onBack}>{"← Back to "}{teamName(teamId, data.teams)}</button>
 
       <div className="pi-header">
         <div className="pi-name">{playerName}</div>
@@ -1516,7 +1521,7 @@ function PlayerIntelligence({ data, playerName, teamId, defaultView, onBack }) {
                 {sortedPitchingLog.map((r, i) => (
                   <tr key={i}>
                     <td className="td-name">{fmtDate(r.Game_Date)}</td>
-                    <td className="td-name">{r.Opponent}</td>
+                    <td className="td-name">{teamName(r.Opponent, data.teams)}</td>
                     <td className="td-r">{fmtIP(num(r.Outs_Recorded))}</td>
                     <td className="td-r">{num(r.R_Allowed)}</td>
                     <td className="td-r">{num(r.H_Allowed)}</td>
@@ -1565,7 +1570,7 @@ function PlayerIntelligence({ data, playerName, teamId, defaultView, onBack }) {
                 {sortedBattingLog.map((r, i) => (
                   <tr key={i}>
                     <td className="td-name">{fmtDate(r.Game_Date)}</td>
-                    <td className="td-name">{r.Opponent}</td>
+                    <td className="td-name">{teamName(r.Opponent, data.teams)}</td>
                     <td className="td-r">{num(r.PA)}</td>
                     <td className="td-r">{num(r.AB)}</td>
                     <td className="td-r">{num(r.H)}</td>
@@ -1949,7 +1954,7 @@ function ReportTab({ data }) {
             <select className="ask-inp" value={teamFilter} onChange={e => setTeamFilter(e.target.value)}
               style={{ width: "100%", padding: "9px 12px", cursor: "pointer" }}>
               <option value="">All teams</option>
-              {allTeamCodes.map(c => <option key={c} value={c}>{teamName(c)} ({c})</option>)}
+              {allTeamCodes.map(c => <option key={c} value={c}>{teamName(c, data.teams)} ({c})</option>)}
             </select>
           </div>
           <div>

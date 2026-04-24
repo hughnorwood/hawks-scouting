@@ -13,6 +13,7 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXCEL_PATH = REPO_ROOT / "data" / "RiverHill_Repository_Master.xlsx"
+CONFIG_PATH = REPO_ROOT / "pipeline" / "config.json"
 JSON_PATH = REPO_ROOT / "public" / "repository.json"
 
 SHEETS = ["Game_Log", "Batting", "Pitching", "Fielding"]
@@ -50,13 +51,31 @@ def sheet_to_rows(ws):
     return rows
 
 
+def load_team_display_names():
+    """Build a flat code → display_name dict from config.json."""
+    if not CONFIG_PATH.exists():
+        sys.exit(f"config.json not found: {CONFIG_PATH}")
+    with open(CONFIG_PATH) as f:
+        cfg = json.load(f)
+    teams = {}
+    for entry in cfg.get("focal_teams", []) + cfg.get("known_opponents", []):
+        code = entry.get("code")
+        name = entry.get("display_name")
+        if code and name:
+            teams[code] = name
+    return teams
+
+
 def main():
     if not EXCEL_PATH.exists():
         sys.exit(f"Excel file not found: {EXCEL_PATH}")
 
     wb = openpyxl.load_workbook(EXCEL_PATH, read_only=True, data_only=True)
 
-    result = {"exported": datetime.utcnow().isoformat() + "Z"}
+    result = {
+        "exported": datetime.utcnow().isoformat() + "Z",
+        "teams": load_team_display_names(),
+    }
 
     for sheet_name, json_key in zip(SHEETS, JSON_KEYS):
         if sheet_name not in wb.sheetnames:
