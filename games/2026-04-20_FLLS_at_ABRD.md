@@ -33,9 +33,9 @@ ABRD    0  0  0  0  0  X
 | 1 | 1 | Top | Zach Loewe | Ground Out | grounds out to third baseman Miles Showell | 1 | | Lineup changed: Xavier Briscoe in at pitcher |
 | 2 | 1 | Top | Finn Rebasti | Walk | walks, Xavier Briscoe pitching | 1 | | |
 | 3 | 1 | Top | Reese Conley | Fielder's Choice | grounds into fielder's choice to shortstop Trevor Zakowsky, Finn Rebasti out advancing to 3rd | 2 | | |
-| 4 | 1 | Top | Garrett Kersch | Error | hits a ground ball and reaches on an error by shortstop Trevor Zakowsky, Reese Conley scores | 2 | 1 | |
+| 4 | 1 | Top | Garrett Kersch | Single | singles on a ground ball to shortstop Trevor Zakowsky, Reese Conley scores on fielding error | 2 | 1 | |
 | 5 | 1 | Top | Ben Kersch | Single | singles on a pop fly to left fielder Perry, Garrett Kersch advances to 3rd on error by left fielder Perry, Ben Kersch advances to 2nd on the same error | 2 | | |
-| 6 | 1 | Top | Carter Flanagan | Error | hits a ground ball and reaches on an error by shortstop Trevor Zakowsky, Garrett Kersch scores, Ben Kersch advances to 3rd | 2 | 1 | |
+| 6 | 1 | Top | Carter Flanagan | Single | singles on a ground ball to shortstop Trevor Zakowsky, Garrett Kersch scores on fielding error, Ben Kersch advances to 3rd | 2 | 1 | |
 | 7 | 1 | Top | Joey Potler | Ground Out | grounds out to first baseman Katoski | 3 | | |
 | 8 | 1 | Bottom | David Mundrick | Error | hits a ground ball and reaches on an error by second baseman Justin Schilpp | | | Lineup changed: in for batter David Mundrick |
 | 9 | 1 | Bottom | Trevor Zakowsky | Strikeout | strikes out swinging, Reese Conley pitching, remains at 1st | 1 | | |
@@ -43,7 +43,7 @@ ABRD    0  0  0  0  0  X
 | 11 | 1 | Bottom | Ayden Fleming | Ground Out | grounds out to second baseman Justin Schilpp | 3 | | [steals 2nd] |
 | 12 | 2 | Top | Justin Schilpp | Single | singles on a ground ball to shortstop Trevor Zakowsky | | | |
 | 13 | 2 | Top | Ian Bishoff | Single | singles on a hard ground ball to right fielder Gordon, Justin Schilpp advances to 2nd | | | |
-| 14 | 2 | Top | Zach Loewe | Error | hits a ground ball and reaches on an error by third baseman Miles Showell, Justin Schilpp advances to 3rd, Ian Bishoff advances to 2nd | | | |
+| 14 | 2 | Top | Zach Loewe | Single | singles on a ground ball to third baseman Miles Showell, Justin Schilpp advances to 3rd on fielding error, Ian Bishoff advances to 2nd on same error | | | |
 | 15 | 2 | Top | Finn Rebasti | Walk | walks, Xavier Briscoe pitching, Justin Schilpp scores, Ian Bishoff advances to 3rd, Zach Loewe advances to 2nd | | 1 | |
 | 16 | 2 | Top | Reese Conley | Walk | walks, Xavier Briscoe pitching, Ian Bishoff scores, Zach Loewe advances to 3rd, Finn Rebasti advances to 2nd | | 1 | |
 | 17 | 2 | Top | Garrett Kersch | Sacrifice Fly | out on sacrifice fly to right fielder Gordon, Reese Conley held up at 1st, Zach Loewe scores, Finn Rebasti advances to 3rd | 1 | 1 | |
@@ -175,13 +175,13 @@ All three figures match.
 ### Mandatory Verification — Hit Totals
 
 **Hits from play log:**
-Fallston hits: #5 (Ben Kersch single), #12 (Justin Schilpp single), #13 (Ian Bishoff single), #19 (Carter Flanagan double), #20 (Joey Potler single), #32 (Carter Flanagan triple), #41 (Ian Bishoff double) = 7 hits
+Fallston hits: #4 (Garrett Kersch single), #5 (Ben Kersch single), #6 (Carter Flanagan single), #12 (Justin Schilpp single), #13 (Ian Bishoff single), #14 (Zach Loewe single), #19 (Carter Flanagan double), #20 (Joey Potler single), #32 (Carter Flanagan triple), #41 (Ian Bishoff double) = 10 hits
 
 Aberdeen hits: #35 (unnamed player single), #44 (William Fazenbaker single) = 2 hits
 
 **Reported Team Totals:** Fallston H=10, Aberdeen H=2
 
-**Conflict:** Play log shows 7 hits for Fallston but reported total is 10. Aberdeen totals match (2 hits).
+**Match. (Section 5 count and play Outcomes were corrected 2026-04-23: plays #4 Garrett Kersch, #6 Carter Flanagan, and #14 Zach Loewe were originally marked 'Error' but per GC.com box score are credited as singles, with fielding errors noted for runner advancement.)**
 
 ### Mandatory Verification — Errors
 

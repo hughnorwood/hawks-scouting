@@ -240,9 +240,11 @@ All three figures match for both teams.
 ### Hit Totals Verification
 
 **Hits from play log:**
-KTIS hits: Play #2 (K Coe single), Play #16 (M Whisman single), Play #21 (B White single), Play #22 (J Gifford single), Play #30 (D Grossi single), Play #52 (H Austin single), Play #64 (M Fisher triple), Play #65 (J Kulp single), Play #66 (J Grossi double), Play #68 (D Grossi single), Play #80 (M Fisher single) = **11 hits**
+KTIS hits: Play #2 (K Coe single), Play #16 (M Whisman single), Play #30 (D Grossi single), Play #47 (M Fisher single), Play #52 (H Austin single), Play #64 (M Fisher triple), Play #65 (J Kulp single), Play #66 (J Grossi double), Play #68 (D Grossi single), Play #80 (M Fisher single) = **10 hits**
 
-CRFT hits: Play #9 (N Truman single), Play #10 (K Willis single), Play #11 (X Bejar triple), Play #35 (J Gifford double), Play #74 (N Truman single), Play #77 (L Davis single) = **6 hits**
+CRFT hits: Play #9 (N Truman single), Play #10 (K Willis single), Play #11 (X Bejar triple), Play #21 (B White single), Play #22 (J Gifford single), Play #35 (J Gifford double), Play #74 (N Truman single), Play #77 (L Davis single) = **8 hits**
+
+**Match. (Section 5 count was corrected 2026-04-23: plays #21 and #22 are CRFT bottom-half hits that were incorrectly attributed to KTIS; play #47 was a KTIS top-half hit that was omitted.)**
 
 **Reported team H totals:**
 - KTIS: **10**

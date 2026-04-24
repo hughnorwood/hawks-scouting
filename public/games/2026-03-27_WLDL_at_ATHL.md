@@ -62,7 +62,7 @@ ATHL    3  9  3  7  0  22 18  1
 | 38 | 3 | Bottom | Jack Martin | Fly Out | flies out to left fielder Nolam Gilchrist | 3 | | |
 | 39 | 4 | Top | Tommy Sommer | Ground Out | grounds out to shortstop Josh Whiting | 1 | | Lineup changed: JR Bott in at pitcher |
 | 40 | 4 | Top | David Coleman | Strikeout | strikes out looking, JR Bott pitching | 2 | | |
-| 41 | 4 | Top | Nate Dalesio | Error | hits a ground ball and reaches on an error by shortstop Josh Whiting, Nate Dalesio advances to 2nd on the same error | | | |
+| 41 | 4 | Top | Nate Dalesio | Single | singles on a ground ball, advances to 2nd on error by shortstop Josh Whiting | | | |
 | 42 | 4 | Top | Braylee Habershon | Ground Out | grounds out to third baseman Jack Martin | 3 | | |
 | 43 | 4 | Bottom | Noah Weinig | Ground Out | grounds out to shortstop Nate Dalesio | 1 | | |
 | 44 | 4 | Bottom | Liam Conroy | Walk | walks, Kingston Clark pitching | | | Lineup changed: Kingston Clark in at pitcher |
@@ -158,14 +158,12 @@ All three figures match exactly.
 **Mandatory Verification — Hit Totals**
 
 Hits from play log:
-- Wilde Lake: Play #1 (Tommy Sommer double), Play #41 (Nate Dalesio - recorded as error, not hit) = 1 hit
+- Wilde Lake: Play #1 (Tommy Sommer double), Play #41 (Nate Dalesio single) = 2 hits
 - Atholton: Plays #4, #5, #9, #15, #16, #17, #20, #23, #24, #25, #26, #33, #35, #37, #45, #51, #52, #53 = 18 hits
-
-Wait, correcting Wilde Lake count - only Play #1 is recorded as a hit. Play #41 is an error.
 
 Reported team H totals: Wilde Lake 2, Atholton 18
 
-**Flag #1:** Hit count discrepancy - Play log shows 1 hit for Wilde Lake but reported total is 2. Play log identifies 18 hits for Atholton, matching the reported total.
+**Match. (Section 5 count and play #41 Outcome were corrected 2026-04-23: Nate Dalesio's play #41 was originally marked 'Error' but is credited as a single per GC.com box score, with the error noted for the advancement to 2nd base.)**
 
 **Mandatory Verification — Errors**
 
