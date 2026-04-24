@@ -118,7 +118,7 @@ This is the unique key everywhere: Excel Game_Log, markdown filename, and duplic
 
 ---
 
-## The 13 Focal Teams
+## The 15 Focal Teams
 
 | Team | GC Team ID | App Code |
 |---|---|---|
@@ -135,8 +135,10 @@ This is the unique key everywhere: Excel Game_Log, markdown filename, and duplic
 | Century | `67lmIIVaxWMx` | `CNTY` |
 | Kent Island | `HosNhxk1NroJ` | `KTIS` |
 | Long Reach | `6Q2VVSbv2fQQ` | `LNRC` |
+| Wilde Lake | `HZBbh1Lf6XtW` | `WLDL` |
+| Hammond | `vF8BfQGb71MV` | `HMMN` |
 
-RVRH is the primary focal team. The app classifies a team as "focal" if it appears ≥4 times as `Focal_Team` in Game_Log.
+RVRH is the primary focal team. The app classifies a team as "focal" if it appears ≥4 times as `Focal_Team` in Game_Log. Wilde Lake and Hammond were promoted from `known_opponents` to `focal_teams` on April 21, 2026; their full season was backfilled via the daily cron plus targeted manual ingest passes.
 
 ---
 
@@ -273,6 +275,20 @@ G1-G6 verify team hit and run totals. They cannot catch: stats correctly totaled
 
 **Lesson:** Static code-to-code aliases break when the upstream source (GameChanger) reuses codes across teams. Name-based resolution is the correct abstraction — it's stable across code changes and handles ambiguity naturally. Unknown teams now produce loud failures instead of silent corruption.
 
+### Section 5 miscounts as gate failure cause (late April 2026)
+**What happened:** Six focal-team games persistently failed ingest gates (G1/G3 hit mismatches) across multiple batch retries, even though `--skip-crosschecks` doesn't bypass gates. Investigation showed the Structured Play Log's Outcome column had correct hit counts in most cases — but Section 5's "Mandatory Verification — Hit Totals" section was miscounted by Claude at transcription time. When `ingest.py` ran, Claude deferred to Section 5's wrong number rather than counting fresh from the play log, failing the gate.
+
+**Fix pattern:** For each stuck game, parse the Structured Play Log Outcome column (counting `Single`/`Double`/`Triple`/`Home Run`) and compare against Section 5's claim. When they diverge, correct Section 5 (usually by adding an omitted play, removing a mis-attributed one, or fixing half-inning assignments). Then re-ingest. In cases where the play log Outcome itself disagrees with GC's official box score (e.g., "Error" where GC credits a Single via reach-on-error), edit the Outcome column to match GC.
+
+**Lesson:** When a gate failure seems persistent, don't assume bad data. Check Section 5 arithmetic first — it's often the parser artifact, not the source data. A small helper script scanning Outcome column counts per half (see approach used in April 24 session) reveals miscounts quickly.
+
+**Scoring judgment caveat:** GameChanger's official scorer and Claude's transcription sometimes disagree on reach-on-error vs single. The official scorer's call is authoritative — if the user visually confirms from GC that a play is a hit, edit the Outcome column to `Single` and keep the error in the description for runner advancement.
+
+### Pre-existing data-quality items flagged for future cleanup
+- **`2020-04-07_STHR_at_GLNB` duplicate** — Both Game_Log entries under this ID actually contain 2026-era data with misparsed dates (likely from an old backfill and a more recent manual ingest). Roster players and pitcher names are current, not 2020.
+- **`2026-04-04_CNTY_at_NRTE`** — Ingested with team order reversed (the .md file is NRTE_at_CNTY but Game_ID shows CNTY_at_NRTE).
+- **`STMC` alias missing from `config.json`** — Saint Michaels games ingest as `ST.M` instead of being mapped to a canonical code. Add an entry to `known_opponents` with name patterns `["st. michaels", "saint michaels"]` to consolidate.
+
 ### API rate limits during backfill
 The pipeline hit the output token rate limit (8,000 tokens/minute for claude-sonnet-4-20250514) during the initial backfill run processing multiple games in sequence. Fix: 60-second delay between API calls in multi-game runs. This only affects backfill — single daily game runs are well within limits. Rate limits increase automatically with account spend history over time.
 
@@ -317,22 +333,25 @@ Pushing `.github/workflows/` files requires the `workflow` scope on the GitHub P
 
 ---
 
-## Current Status (April 2026)
+## Current Status (late April 2026)
 
 ### Pipeline
 - ✅ Full pipeline live and running (daily 6am ET cron + manual dispatch)
 - ✅ All 6 build steps complete
-- ✅ Backfill complete — all 13 focal teams backfilled; 5,171+ rows in repository
+- ✅ **Backfill complete — all 15 focal teams; 237 games / 7,400+ rows in repository (as of April 24)**
+- ✅ **Wilde Lake + Hammond promoted to focal teams (April 21)** — full season backfilled via daily cron plus a multi-pass manual ingest session
+- ✅ **`public/games/` sync gap fixed (April 24)** — `daily.yml` now stages `public/games/` so per-game markdowns deploy with `repository.json`; 46 previously-untracked files backfilled
+- ✅ **All originally-gate-failed focal games ingested (April 24)** — several stubborn games required Section 5 hit-list corrections or play-log Outcome edits (reach-on-error → single per GC scorer) to land
 - ✅ Rate limit workaround in place (15-second delay between calls)
 - ✅ Batter misattribution bug fixed in transcribe.md v4.1
 - ✅ Verbatim team name preservation — transcribe.md v4.2
-- ✅ Name-based team registry — replaced CODE_ALIASES (April 15); config.json is source of truth for team identity; 13 focal teams + 83 known opponents with name_patterns
+- ✅ Name-based team registry — replaced CODE_ALIASES (April 15); config.json is source of truth for team identity; 15 focal teams + 81 known opponents with name_patterns
 - ✅ NRTH ambiguity resolved — 20 games disambiguated across 5 teams; all future games resolved per-game via name matching
 - ✅ Validator system live — `validate_core.py` shared between `ingest.py` (write-time) and `validate.py` (retrospective audit); PC1-PC5 checks; team code resolution through config.json registry
 - ✅ Triage + batch re-ingest tooling — `triage.py` buckets A-H; `reingest_batch.py` auto-repairs Buckets A & B with Excel backup + per-game snapshot/restore
 - ✅ Parser improvements — skip incomplete PAs (mid-at-bat game endings); skip phantom pitchers (zero-appearance entries)
-- 🚧 Triage worklist in progress — `validate.py --all` produces the current backlog; Buckets A & B are auto-repairing; C/D/E (PC2 hit mismatches) and F (non-focal missing players) require manual judgment
-- ⚠️ A few pre-validator gate failures still pending retry (`.md` exists but not in Excel Game_Log)
+- 🚧 Triage worklist — retrospective validator still flags games landed via `--skip-crosschecks` as PC failures (by design); these are acceptable cross-check gaps that live in buckets E/G/H
+- ⚠️ Flagged for future cleanup: `2020-04-07_STHR_at_GLNB` duplicate, `CNTY_at_NRTE` team order reversed, missing `STMC` alias — details under Known Issues
 - ⚠️ Backfill games transcribed with v4.0 should be spot-checked for misattribution
 
 ### App (v5 redesign — completed April 13–14, 2026)

@@ -141,8 +141,8 @@ The `Derivation_Rules` sheet exists in the file and must never be modified. All 
 Team codes in the repository (RVRH, NHRF, etc.) are canonical — they never change. But GameChanger and Claude's transcription generate non-canonical codes (NRTH, MDDL, KNTS, etc.) that must be mapped to canonical codes before writing to Excel.
 
 **`config.json` is the single source of truth for team identity.** It contains:
-- `focal_teams` — 13 tracked teams with `name_patterns` (lowercase substrings matched against full team names from markdown headers)
-- `known_opponents` — 83 non-focal teams with their own `name_patterns`
+- `focal_teams` — 15 tracked teams with `name_patterns` (lowercase substrings matched against full team names from markdown headers)
+- `known_opponents` — 81 non-focal teams with their own `name_patterns`
 
 **Resolution flow** (in `ingest.py`):
 1. Parse the markdown `Teams:` line for full team names (e.g., "North Harford Varsity Hawks")
@@ -169,8 +169,10 @@ This replaced the old `CODE_ALIASES` dict (retired April 15, 2026) which was a g
 | Century | `67lmIIVaxWMx` | `CNTY` |
 | Kent Island | `HosNhxk1NroJ` | `KTIS` |
 | Long Reach | `6Q2VVSbv2fQQ` | `LNRC` |
+| Wilde Lake | `HZBbh1Lf6XtW` | `WLDL` |
+| Hammond | `vF8BfQGb71MV` | `HMMN` |
 
-**Note:** `RVRH` is the primary focal team and the default `Focal_Team` value for River Hill home and away games.
+**Note:** `RVRH` is the primary focal team and the default `Focal_Team` value for River Hill home and away games. WLDL and HMMN were promoted from `known_opponents` to `focal_teams` on April 21, 2026.
 
 ### Adding a new team to the registry
 
@@ -442,19 +444,25 @@ Vercel auto-deploys on push to main — no additional step needed.
 - **Team code resolution is name-based.** `ingest.py` resolves raw team codes (NRTH, MDDL, etc.) to canonical codes (NHRF, MDLT, etc.) by matching full team names from the markdown header against `name_patterns` in `config.json`. This replaced the old `CODE_ALIASES` dict on April 15, 2026. The old system couldn't handle ambiguous codes like NRTH (5 different teams). The new system resolves per-game based on the actual team name.
 - **Unknown teams produce loud warnings.** If `ingest.py` encounters a team name not in the registry, it prints `[REGISTRY] WARNING` and preserves the raw code. Add the team to `config.json` `known_opponents` and retry.
 - **The Excel filename is `RiverHill_Repository_Master.xlsx`** — not `RiverHill_Repository.xlsx`.
-- **Focal team list is hardcoded** in the app as `FOCAL_TEAMS` (13 teams). The League scatter plot, standings table, and heat map all filter to this list. The `classifyTeams()` function still derives focal teams dynamically for the Ask tab's data context, but the UI components use the hardcoded array.
+- **Focal team list is hardcoded** in the app as `FOCAL_TEAMS` (15 teams as of April 21, 2026). The League scatter plot, standings table, and heat map all filter to this list. The `classifyTeams()` function still derives focal teams dynamically for the Ask tab's data context, but the UI components use the hardcoded array. The array appears in **5 places** in `app/hawks.jsx` — when adding a team, update all of them (use `replace_all` in Edit).
+- **`public/games/` must stay synced with `games/`.** The app fetches per-game markdowns from `/games/{id}.md` on the deployed site, which is served from `public/games/`. `export.py` copies games from `games/` to `public/games/` after each successful ingest, and `.github/workflows/daily.yml` stages `public/games/` in its `git add` (added April 24, 2026). Prior to that fix, 46 files accumulated untracked for weeks — games whose `.md` was present in Excel but missing from `public/games/` would 404 in the app.
+- **Gate failures can stem from miscounted Section 5, not bad data.** When `ingest.py` gates fail on hit count discrepancy, check whether Section 5's verification hit list matches the Structured Play Log Outcome column. Claude sometimes miscounts Section 5 at transcription time (omitted plays, half-inning mix-ups, wrong team attribution) while the actual Outcome column is correct. Fixing the Section 5 hit list to match play log outcomes, then re-ingesting, is often enough to land the game. If play log Outcomes truly disagree with GC-confirmed totals, a play's Outcome column may need to be edited (e.g., reach-on-error that the official scorer credited as a single).
+- **Ingested Game_ID may differ from `.md` filename** when aliases resolve at ingest time. The scraper names `.md` files with the raw GC code (e.g., `2026-04-13_PNTR_at_HRFR.md`), but the registry resolves HRFR→HRFD before writing Excel, so the Game_Log row becomes `2026-04-13_PNTR_at_HRFD`. When comparing `games/*.md` against Game_Log for missing ingestions, normalize through the alias map. Known aliases observed in the wild: HRFR→HRFD, MDDL→MDLT, KNTS→KTIS, LNGR→LNRC, MTHB→MT.H, STMC→ST.M, CMLW→CML.
 - **Team display names** use the `TEAM_NAMES` map and `teamName()` helper. Add new teams there when expanding the focal list.
 - **Vercel build failures are silent to production.** Production (`main`) only updates when a deploy succeeds. A failing build produces a red ❌ on the PR / commit and an "Error" in the Vercel dashboard, but production keeps serving the last green bundle. On April 18-19, 2026, commit `3e2ed79` shipped an unbalanced `</div>` in `LeagueHeatMap` that broke every subsequent deploy for a week before it was caught. When UI changes don't seem to be showing up, check the Vercel deployment status on the latest commit before assuming caching or client issues. Running `npm run build` locally reproduces the error.
 - **`<Analytics />` is mounted once in `src/main.jsx`.** Do not add a second mount in `app/hawks.jsx`. Vercel Web Analytics uses `/_vercel/insights/script.js` and `/_vercel/insights/view` routes — these are independent of `/api/chat.js`.
 
 ---
 
-## Current State (April 2026)
+## Current State (late April 2026)
 
 ### Pipeline
 - ✅ **All 6 build steps complete** — full pipeline live
-- ✅ **Backfill complete** — all 13 focal teams backfilled; 5,171+ rows in repository
-- ⚠️ **A few gate failures pending retry** — `.md` files exist in `games/` but no matching rows in Excel `Game_Log`. To find: compare `games/*.md` filenames against Game_Log Game_IDs. To retry: `python pipeline/ingest.py games/{game_file}.md`
+- ✅ **Backfill complete** — all 15 focal teams backfilled; 237 games / 7,400+ rows in repository as of April 24
+- ✅ **WLDL + HMMN promoted to focal teams (April 21)** — added to `config.json` focal_teams and to `FOCAL_TEAMS` + `TEAM_NAMES` in `app/hawks.jsx`; initial backfill completed via combination of daily cron and manual ingest passes
+- ✅ **`public/games/` sync gap fixed (April 24)** — workflow `git add` now includes `public/games/` path so per-game markdowns deploy alongside `repository.json`
+- ✅ **All originally-gate-failed focal games ingested by April 24** — several stubborn games required Section 5 hit-list corrections or Outcome column edits (reach-on-error → single per GC scorer) to land in Excel
+- ⚠️ **Known data-quality items flagged for later cleanup:** (1) `2020-04-07_STHR_at_GLNB` appears as a misdated duplicate of an April 2026 STHR game (both rows are 2026 data with wrong dates); (2) `2026-04-04_CNTY_at_NRTE` was ingested with team order reversed; (3) `STMC` alias for "Saint Michaels" is missing from `config.json` — games are ingesting as `ST.M`
 - ✅ **Batter misattribution bug fixed** — transcribe.md v4.1 in place
 - ✅ **Verbatim team name preservation** — transcribe.md v4.2; full GC names preserved for registry matching
 - ⚠️ **Backfill games transcribed with v4.0 should be spot-checked** — any game where a walk-off or late-inning play had a "next batter" header adjacent to the final play is a misattribution risk
