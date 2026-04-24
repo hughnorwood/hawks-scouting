@@ -9,6 +9,17 @@ const fix2 = v => !isFinite(v) || isNaN(v) || v > 99 ? "—" : v.toFixed(2);
 const fix1 = v => !isFinite(v) || isNaN(v) || v > 99 ? "—" : v.toFixed(1);
 const fmtIP = outs => `${Math.floor(outs / 3)}.${outs % 3}`;
 const clamp = (v, max) => v > max ? max : v;
+const fmtDate = d => {
+  const s = String(d);
+  if (s.length >= 10 && s.includes("-")) return s.slice(5, 7) + "/" + s.slice(8, 10);
+  const n = Number(d);
+  if (n > 40000 && n < 60000) {
+    const epoch = new Date(1899, 11, 30);
+    const dt = new Date(epoch.getTime() + n * 86400000);
+    return String(dt.getMonth() + 1).padStart(2, "0") + "/" + String(dt.getDate()).padStart(2, "0");
+  }
+  return s;
+};
 
 const TEAM_NAMES = {
   RVRH: 'River Hill', CNTN: 'Centennial', GLNL: 'Glenelg', HNTN: 'Huntingtown',
@@ -320,9 +331,15 @@ function teamRecord(data, teamId) {
 
   const results = games.map(g => {
     const ar = num(g.Away_R), hr = num(g.Home_R);
-    const tr = g.Away_Team === teamId ? ar : hr;
-    const or = g.Away_Team === teamId ? hr : ar;
-    return { W: tr > or, L: tr < or, rs: tr, ra: or, date: g.Game_Date };
+    const isAway = g.Away_Team === teamId;
+    const tr = isAway ? ar : hr;
+    const or = isAway ? hr : ar;
+    return {
+      W: tr > or, L: tr < or, rs: tr, ra: or,
+      date: g.Game_Date,
+      opp: isAway ? g.Home_Team : g.Away_Team,
+      home: !isAway,
+    };
   });
 
   const last5 = results.slice(0, 5);
@@ -472,7 +489,34 @@ tbody tr:last-child td { border-bottom:none; }
 .slim-header { position:sticky; top:56px; z-index:50; background:var(--s1); border-bottom:1px solid var(--bd); padding:10px 16px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:13px; font-weight:600; margin:0 -20px; padding-left:20px; padding-right:20px; }
 .slim-stat { font-family:'Courier New',monospace; font-variant-numeric:tabular-nums; color:var(--text2); }
 .slim-sep { color:var(--bd2); }
-.slim-pill { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; color:#fff; }
+.slim-pill-wrap { position:relative; display:inline-flex; }
+.slim-pill { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; color:#fff; cursor:default; }
+.pill-tip { position:absolute; left:50%; transform:translateX(-50%); bottom:calc(100% + 6px); z-index:60; background:#fff; border:1px solid var(--bd); border-radius:var(--radius); color:var(--navy); font-size:12px; font-weight:600; padding:6px 10px; white-space:nowrap; box-shadow:0 2px 6px rgba(0,30,80,.14); pointer-events:none; }
+.pill-tip.below { bottom:auto; top:calc(100% + 6px); }
+.pill-tip-name { font-weight:700; }
+.pill-tip-date { color:var(--muted); font-weight:600; margin-left:6px; }
+
+.full-rec { border:0.5px solid var(--bd); border-radius:var(--radius); overflow:hidden; margin:14px 0 18px 0; }
+.full-rec-hdr { padding:12px 16px; background:var(--s2); cursor:pointer; user-select:none; display:flex; align-items:center; justify-content:space-between; min-height:44px; }
+.full-rec-hdr:hover { background:var(--s3); }
+.full-rec-title { font-size:12px; font-weight:700; color:var(--navy); letter-spacing:0.5px; text-transform:uppercase; }
+.full-rec-count { font-size:12px; color:var(--muted); font-weight:600; margin-left:8px; }
+.full-rec-toggle { font-size:12px; color:var(--muted); }
+.full-rec-body { background:var(--s1); border-top:1px solid var(--bd); }
+.full-rec-body table { width:100%; border-collapse:collapse; font-size:13px; }
+.full-rec-body td { padding:7px 12px; }
+.full-rec-body tr:nth-child(odd)  td { background:var(--s1); }
+.full-rec-body tr:nth-child(even) td { background:var(--s2); }
+.fr-date { font-family:'Courier New',monospace; color:var(--text2); width:60px; }
+.fr-opp  { font-weight:600; color:var(--navy); }
+.fr-ha-home { color:var(--navy); font-weight:700; }
+.fr-ha-away { color:var(--muted); font-weight:600; }
+.fr-result-w { color:var(--green); font-weight:800; }
+.fr-result-l { color:var(--red);   font-weight:800; }
+.fr-score { font-family:'Courier New',monospace; font-variant-numeric:tabular-nums; }
+.fr-score-w { color:var(--green); }
+.fr-score-l { color:var(--red); }
+@media(max-width:700px) { .hide-mobile { display:none; } }
 .slim-pill-w { background:var(--green); }
 .slim-pill-l { background:var(--red); }
 
@@ -1217,6 +1261,30 @@ function TeamBriefing({ data, teamId, drawerState, setDrawerState, onPlayerClick
 
   const toggleDrawer = key => setDrawerState(prev => ({ ...prev, [key]: !prev[key] }));
 
+  const [hoveredPill, setHoveredPill] = useState(null);
+  const [pillBelow, setPillBelow] = useState(false);
+  const [showFullRecord, setShowFullRecord] = useState(false);
+
+  const showPill = (idx, el) => {
+    if (el) {
+      const r = el.getBoundingClientRect();
+      // Flip below the pill when the sticky header is near the top of the viewport
+      // (otherwise the tooltip would render under the topbar at z-index 100).
+      setPillBelow(r.top < 90);
+    }
+    setHoveredPill(idx);
+  };
+
+  // Dismiss pill tooltip on outside tap (mobile)
+  useEffect(() => {
+    if (hoveredPill === null) return;
+    const dismiss = e => {
+      if (!e.target.closest?.(".slim-pill-wrap")) setHoveredPill(null);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [hoveredPill]);
+
   return (
     <div>
       <button className="back-btn" onClick={onBack}>{"← Back to Teams"}</button>
@@ -1233,10 +1301,55 @@ function TeamBriefing({ data, teamId, drawerState, setDrawerState, onPlayerClick
         <span className="slim-sep">{"\u00b7"}</span>
         <span className="slim-stat">{fix2(summary.WHIP)} WHIP</span>
         {last3.map((g, i) => (
-          <span key={i} className={`slim-pill ${g.W ? "slim-pill-w" : "slim-pill-l"}`}>
-            {g.W ? "W" : "L"} {g.rs}-{g.ra}
+          <span
+            key={i}
+            className="slim-pill-wrap"
+            onMouseEnter={e => showPill(i, e.currentTarget)}
+            onMouseLeave={() => setHoveredPill(p => (p === i ? null : p))}
+            onClick={e => {
+              e.stopPropagation();
+              if (hoveredPill === i) setHoveredPill(null);
+              else showPill(i, e.currentTarget);
+            }}
+          >
+            <span className={`slim-pill ${g.W ? "slim-pill-w" : "slim-pill-l"}`}>
+              {g.W ? "W" : "L"} {g.rs}-{g.ra}
+            </span>
+            {hoveredPill === i && (
+              <span className={`pill-tip ${pillBelow ? "below" : ""}`}>
+                <span className="pill-tip-name">{teamName(g.opp, data.teams)}</span>
+                <span className="pill-tip-date">{fmtDate(g.date)}</span>
+              </span>
+            )}
           </span>
         ))}
+      </div>
+
+      <div className="full-rec">
+        <div className="full-rec-hdr" onClick={() => setShowFullRecord(v => !v)}>
+          <span>
+            <span className="full-rec-title">Full Record</span>
+            <span className="full-rec-count">{rec.results.length} game{rec.results.length === 1 ? "" : "s"}</span>
+          </span>
+          <span className="full-rec-toggle">{showFullRecord ? "▲" : "▼"}</span>
+        </div>
+        {showFullRecord && (
+          <div className="full-rec-body">
+            <table>
+              <tbody>
+                {rec.results.map((g, i) => (
+                  <tr key={i}>
+                    <td className="fr-date">{fmtDate(g.date)}</td>
+                    <td className="fr-opp">{teamName(g.opp, data.teams)}</td>
+                    <td className={`hide-mobile ${g.home ? "fr-ha-home" : "fr-ha-away"}`}>{g.home ? "Home" : "Away"}</td>
+                    <td className={g.W ? "fr-result-w" : "fr-result-l"}>{g.W ? "W" : "L"}</td>
+                    <td className={`fr-score ${g.W ? "fr-score-w" : "fr-score-l"}`}>{g.rs}{"\u2013"}{g.ra}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Pitching Drawer */}
@@ -1452,18 +1565,6 @@ function PlayerIntelligence({ data, playerName, teamId, defaultView, onBack }) {
   const { sorted: sortedPitchingLog, col: pCol, dir: pDir, toggle: pToggle } = useSort(filteredPitching, "Game_Date");
 
   const role = view === "pitching" && pitchingAgg ? pitcherRole(pitchingAgg) : "Batter";
-
-  const fmtDate = d => {
-    const s = String(d);
-    if (s.length >= 10 && s.includes("-")) return s.slice(5, 7) + "/" + s.slice(8, 10);
-    const n = Number(d);
-    if (n > 40000 && n < 60000) {
-      const epoch = new Date(1899, 11, 30);
-      const dt = new Date(epoch.getTime() + n * 86400000);
-      return String(dt.getMonth() + 1).padStart(2, "0") + "/" + String(dt.getDate()).padStart(2, "0");
-    }
-    return s;
-  };
 
   return (
     <div>
