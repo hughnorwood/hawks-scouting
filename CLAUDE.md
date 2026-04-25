@@ -42,7 +42,8 @@ The pipeline was previously a manual HITL workflow: copy-paste from GC → Claud
 │   ├── validate.py                    ← CLI: retrospective audit of ingested games
 │   ├── triage.py                      ← CLI: classify validator failures into buckets A-H
 │   ├── reingest_batch.py              ← CLI: batch retry/repair for buckets A & B
-│   └── normalize_opponents.py         ← CLI: maintenance tool to canonicalize Opponent field
+│   ├── normalize_opponents.py         ← CLI: maintenance tool to canonicalize Opponent field
+│   └── leaderboards.py                ← CLI: top-10 hitters/pitchers + cross-ref top 5 (--pa, --ip)
 ├── prompts/
 │   ├── transcribe.md                  ← GC transcription prompt (v4.2, source of truth)
 │   └── ingest.md                      ← Excel ingestion prompt (v6, source of truth)
