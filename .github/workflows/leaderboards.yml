@@ -1,0 +1,54 @@
+name: Leaderboards
+
+on:
+  workflow_dispatch:
+    inputs:
+      pa:
+        description: "Hitter min PA threshold (strictly greater than)"
+        required: false
+        default: "35"
+      ip:
+        description: "Pitcher min IP threshold (strictly greater than)"
+        required: false
+        default: "14"
+
+permissions:
+  contents: write
+
+jobs:
+  leaderboards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Generate leaderboards (markdown)
+        run: |
+          python pipeline/leaderboards.py \
+            --pa "${{ inputs.pa }}" \
+            --ip "${{ inputs.ip }}" \
+            --markdown \
+            > public/leaderboards.md
+          echo "Wrote $(wc -l < public/leaderboards.md) lines to public/leaderboards.md"
+
+      - name: Render to job summary
+        run: cat public/leaderboards.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet public/leaderboards.md; then
+            echo "No changes to public/leaderboards.md — skipping commit"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/leaderboards.md
+          git commit -m "leaderboards: refresh (PA>${{ inputs.pa }}, IP>${{ inputs.ip }})"
+          git push

@@ -38,10 +38,12 @@ GAMES_DIR = REPO_ROOT / "games"
 _parser = argparse.ArgumentParser(description=__doc__.strip().split("\n")[0])
 _parser.add_argument("--pa", type=int, default=35, help="Hitter min PA threshold (strictly greater than). Default 35.")
 _parser.add_argument("--ip", type=float, default=14, help="Pitcher min IP threshold (strictly greater than). Default 14.")
+_parser.add_argument("--markdown", action="store_true", help="Emit GitHub-flavored markdown instead of plain text tables.")
 _args = _parser.parse_args()
 
 PA_THRESHOLD   = _args.pa
 OUTS_THRESHOLD = int(_args.ip * 3)
+MARKDOWN       = _args.markdown
 
 # ─── Load repository ──────────────────────────────────────────────────────────
 
@@ -503,17 +505,35 @@ def top10(qualified, key, reverse=True, fmt=lambda v: f"{v}"):
 def fmt_avg(v): return f"{v:.3f}".lstrip("0") if 0 < v < 1 else f"{v:.3f}"
 
 
-print(f"Games processed: {games_processed}, skipped: {games_skipped}")
+if not MARKDOWN:
+    print(f"Games processed: {games_processed}, skipped: {games_skipped}")
 _IP_LABEL = f"{OUTS_THRESHOLD // 3}.{OUTS_THRESHOLD % 3}" if OUTS_THRESHOLD % 3 else f"{OUTS_THRESHOLD // 3}"
 _PA_TAG = f"PA > {PA_THRESHOLD}"
 _IP_TAG = f"IP > {_IP_LABEL}"
 
-print(f"Hitters with {_PA_TAG}: {len(qual_b)}")
-print(f"Pitchers with {_IP_TAG} (Outs > {OUTS_THRESHOLD}): {len(qual_p)}")
-print()
+if MARKDOWN:
+    from datetime import datetime, timezone
+    print("# Top-10 Leaderboards")
+    print()
+    print(f"_Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_  ")
+    print(f"_Thresholds: hitters {_PA_TAG} \u00b7 pitchers {_IP_TAG}_  ")
+    print(f"_Hitters qualified: {len(qual_b)} \u00b7 pitchers qualified: {len(qual_p)} \u00b7 games processed: {games_processed}_")
+else:
+    print(f"Hitters with {_PA_TAG}: {len(qual_b)}")
+    print(f"Pitchers with {_IP_TAG} (Outs > {OUTS_THRESHOLD}): {len(qual_p)}")
+    print()
 
 
 def print_table(title, rows, columns):
+    if MARKDOWN:
+        print()
+        print(f"### {title}")
+        print()
+        print("| " + " | ".join(columns) + " |")
+        print("|" + "|".join("---" for _ in columns) + "|")
+        for r in rows:
+            print("| " + " | ".join(str(c) for c in r) + " |")
+        return
     print(f"\n=== {title} ===")
     widths = [max(len(str(c)), max((len(str(r[i])) for r in rows), default=0)) for i, c in enumerate(columns)]
     print("  ".join(c.ljust(w) for c, w in zip(columns, widths)))
@@ -636,10 +656,11 @@ def cross_ref(top10s, label):
             counts[player_team]["count"] += 1
             counts[player_team]["lists"].append(cat)
     ranked = sorted(counts.items(), key=lambda kv: -kv[1]["count"])[:5]
-    print(f"\n=== {label} — TOP 5 most frequently in top-10s ===")
-    print(f"{'Rank':<5}{'Player':<25}{'Team':<22}{'#Lists':<8}Lists")
+    rows = []
     for i, ((player, team), info) in enumerate(ranked, 1):
-        print(f"{i:<5}{player:<25}{team:<22}{info['count']:<8}{', '.join(info['lists'])}")
+        rows.append([i, player, team, info["count"], ", ".join(info["lists"])])
+    print_table(f"{label} \u2014 TOP 5 most frequently in top-10s", rows,
+                ["Rank","Player","Team","# Lists","Lists"])
 
 
 cross_ref(h_top10s, "HITTERS")
