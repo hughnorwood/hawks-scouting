@@ -70,10 +70,66 @@ def main():
         )
         page = ctx.new_page()
 
+        # ── Snapshot S0: schedule page raw state ──────────────────────────
+        # Capture the schedule page directly so we can see whether it
+        # rendered, redirected to login, or returned a virtualized DOM
+        # that hides game rows from inner_text.
+        sched_url = f"https://web.gc.com/teams/{team['gc_team_id']}/schedule"
+        page.goto(sched_url, wait_until="networkidle")
+        time.sleep(3)
+
+        sched_text = page.inner_text("body")
+        sched_html = page.content()
+        (OUT_DIR / "S0_schedule_inner_text.txt").write_text(sched_text)
+        (OUT_DIR / "S0_schedule_full_html.html").write_text(sched_html)
+        page.screenshot(path=str(OUT_DIR / "S0_schedule_screenshot.png"),
+                        full_page=True)
+        sched_meta = {
+            "final_url":         page.url,
+            "inner_text_len":    len(sched_text),
+            "html_len":          len(sched_html),
+            "url_redirected":    page.url != sched_url,
+            "has_login_marker":  any(s in sched_text.lower()
+                                     for s in ("sign in", "log in", "email")),
+            "has_month_header":  any(m in sched_text
+                                     for m in ("January 2026", "February 2026",
+                                               "March 2026", "April 2026")),
+            "has_dow_marker":    any(d in sched_text for d in
+                                     ("MON", "TUE", "WED", "THU",
+                                      "FRI", "SAT", "SUN")),
+            "schedule_link_count": page.evaluate(
+                "document.querySelectorAll('a[href*=\"/schedule/\"]').length"),
+        }
+        (OUT_DIR / "S0_schedule_meta.json").write_text(
+            json.dumps(sched_meta, indent=2))
+        print(f"Schedule page meta: {json.dumps(sched_meta, indent=2)}")
+
         # ── Find the most recent completed game on this team's schedule ────
         games = parse_schedule(page, team["gc_team_id"], team_code)
+
         if not games:
-            sys.exit("parse_schedule returned no completed games")
+            print("parse_schedule returned no completed games — "
+                  "writing partial summary and exiting cleanly so artifact "
+                  "still uploads.")
+            summary = {
+                "chromium_version": version,
+                "team_code": team_code,
+                "schedule_url": sched_url,
+                "schedule_meta": sched_meta,
+                "parse_schedule_result": "no completed games",
+                "diagnosis_hint": (
+                    "If S0_schedule_inner_text.txt is short/empty but "
+                    "S0_schedule_full_html.html contains game data → "
+                    "Chromium 145 inner_text() is missing virtualized DOM "
+                    "content. If both are short → page redirected/failed "
+                    "(check S0_schedule_meta.final_url)."
+                ),
+            }
+            (OUT_DIR / "00_summary.json").write_text(json.dumps(summary, indent=2))
+            ctx.close()
+            browser.close()
+            return
+
         games.sort(key=lambda g: g["date"], reverse=True)
         target = games[0]
         print(f"Target game: {target['date']} {target['opponent_name']} "
@@ -204,6 +260,7 @@ def main():
         summary = {
             "chromium_version": version,
             "playwright_version": pw.chromium.executable_path,
+            "schedule_meta": sched_meta,
             "target_game": target,
             "url": url,
             "initial": {
