@@ -1,0 +1,83 @@
+name: Scrape Debug
+
+on:
+  workflow_dispatch:
+    inputs:
+      team_code:
+        description: "Focal team code to test (e.g. FLLS, RVRH, KTIS)"
+        required: false
+        default: "FLLS"
+
+permissions:
+  contents: read
+
+jobs:
+  scrape-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Playwright + Chromium (latest, same as daily.yml)
+        run: |
+          pip install playwright
+          playwright install chromium
+          mkdir -p debug-output
+          {
+            echo "playwright pip:"
+            pip show playwright | grep -E "^Version"
+            echo "chromium revision:"
+            python -c "from playwright.sync_api import sync_playwright; \
+                       p=sync_playwright().start(); \
+                       b=p.chromium.launch(headless=True); \
+                       print(b.version); b.close(); p.stop()"
+          } > debug-output/versions.txt
+          cat debug-output/versions.txt
+
+      # ── Restore GC session from the daily-pipeline cache ──
+      # Same key/restore-keys as daily.yml so we pick up whatever the most
+      # recent cron run wrote. This workflow does NOT save the session back —
+      # debug is read-only.
+      - name: Restore GC session
+        uses: actions/cache/restore@v4
+        with:
+          path: pipeline/gc_session.json
+          key: gc-session-v1
+          restore-keys: |
+            gc-session-v1-
+
+      - name: Verify session is present
+        run: |
+          if [ ! -f pipeline/gc_session.json ]; then
+            echo "ERROR: gc_session.json not in cache. Run the daily workflow first."
+            exit 1
+          fi
+          echo "Session size: $(wc -c < pipeline/gc_session.json) bytes"
+
+      - name: Run scrape_debug.py
+        run: python pipeline/scrape_debug.py "${{ inputs.team_code }}"
+
+      - name: Render summary to job summary
+        if: always()
+        run: |
+          if [ -f debug-output/00_summary.json ]; then
+            echo "## Scrape Debug — \`${{ inputs.team_code }}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat debug-output/00_summary.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrape-debug-${{ inputs.team_code }}-${{ github.run_number }}
+          path: debug-output/
+          retention-days: 14
