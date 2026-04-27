@@ -23,4 +23,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: pipeline/gc_session.json
-          key: gc-session-v1
+          key: gc-session-v2

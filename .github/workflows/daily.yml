@@ -52,7 +52,7 @@ jobs:
         id: gc-session-cache
         with:
           path: pipeline/gc_session.json
-          key: gc-session-v1
+          key: gc-session-v2
 
       # ── Scrape ──
       - name: Scrape new games from GameChanger
@@ -69,7 +69,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: pipeline/gc_session.json
-          key: gc-session-v1-${{ github.run_id }}
+          key: gc-session-v2-${{ github.run_id }}
 
       # ── Transcribe each new raw file ──
       - name: Transcribe new games
