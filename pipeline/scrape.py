@@ -113,16 +113,17 @@ def login(page):
     time.sleep(0.5)
     page.click('[data-testid="sign-in-button"]')
 
-    logged_in = False
-    for _ in range(60):
-        time.sleep(1)
-        if "/login" not in page.url:
-            logged_in = True
-            break
-
-    if not logged_in:
+    # Wait for post-submit navigation, then verify by probing /home for the
+    # unauth markers. This is more reliable than the previous URL-string check
+    # (which can miss successes if "/login" lingers in a redirect query
+    # parameter or if the URL settles after our polling window).
+    time.sleep(5)
+    page.goto("https://web.gc.com/home", wait_until="networkidle")
+    time.sleep(3)
+    found_unauth = page.evaluate(PAYWALL_PROBE_JS)
+    if found_unauth:
         page.screenshot(path=str(RAW_DIR / "login_fail.png"))
-        sys.exit(f"Login failed — still at {page.url}")
+        sys.exit(f"Login failed — unauth markers on /home: {found_unauth}")
 
     print(f"Logged in successfully. URL: {page.url}")
     time.sleep(2)
