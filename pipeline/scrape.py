@@ -332,30 +332,79 @@ def parse_schedule(page, team_id, team_code):
 # ── Extraction ────────────────────────────────────────────────────────────────
 
 def extract_plays(page, team_id, game_uuid):
-    """Navigate to a game's plays page and read each play element directly.
+    """Navigate to a game's plays page and accumulate text via incremental scroll.
 
-    GC's plays page uses an inner scrollable container, and Chromium 145
-    body.innerText skips virtualized off-screen content — but querying
-    each play-class element's innerText directly still works since each
-    element is read in its own context, not via body-level rendering walk.
+    GC's plays page is genuinely virtualized — rows are unmounted as they
+    scroll past, so querySelectorAll never returns more than ~20 plays at
+    a time regardless of where you've scrolled. Earlier attempts (read body
+    once, read play elements directly, scroll-to-bottom-then-read) all
+    capped at the same ~16-20 PAs per game.
 
-    The diagnostic at .github/workflows/scrape-debug.yml on 2026-04-26
-    showed 210 [class*="play"] elements present in the DOM. We dedupe by
-    keeping only the leaf-most matches (elements whose match isn't
-    contained by another match), which gives one entry per play row
-    instead of repeating text from every nested play-* container.
+    Real fix: scroll the inner container in small steps, capture
+    body.innerText after each step (which DOES return whatever's currently
+    rendered), and accumulate unique lines. The deduplicated union across
+    scroll positions reconstructs the full play list.
     """
     url = f"https://web.gc.com/teams/{team_id}/schedule/{game_uuid}/plays"
     page.goto(url, wait_until="networkidle")
     time.sleep(3)
-    return page.evaluate("""() => {
-      const all = Array.from(document.querySelectorAll('[class*="play" i]'));
-      const leaves = all.filter(el => !all.some(o => o !== el && el.contains(o)));
-      const playText = leaves.map(e => e.innerText).filter(t => t && t.trim()).join('\\n');
-      // Prepend page header / line score so transcribe.py still sees teams + score
-      const header = document.body.innerText;
-      return header + '\\n\\n' + playText;
-    }""")
+
+    SCROLL_STEP_JS = """(step) => {
+      let moved = false;
+      for (const el of document.querySelectorAll('*')) {
+        const cs = getComputedStyle(el);
+        if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll')
+            && el.scrollHeight > el.clientHeight) {
+          const before = el.scrollTop;
+          el.scrollTop = Math.min(el.scrollTop + step, el.scrollHeight);
+          if (el.scrollTop !== before) moved = true;
+        }
+      }
+      return moved;
+    }"""
+    RESET_TOP_JS = """() => {
+      for (const el of document.querySelectorAll('*')) {
+        const cs = getComputedStyle(el);
+        if (cs.overflowY === 'auto' || cs.overflowY === 'scroll') el.scrollTop = 0;
+      }
+    }"""
+
+    seen = set()
+    lines = []
+
+    def capture():
+        try:
+            text = page.inner_text("body")
+        except Exception:
+            return 0
+        added = 0
+        for line in text.split("\n"):
+            t = line.strip()
+            if t and t not in seen:
+                seen.add(t)
+                lines.append(t)
+                added += 1
+        return added
+
+    page.evaluate(RESET_TOP_JS)
+    time.sleep(0.5)
+    capture()
+
+    stagnant = 0
+    for _ in range(80):
+        moved = page.evaluate(SCROLL_STEP_JS, 300)
+        time.sleep(0.35)
+        added = capture()
+        if not moved:
+            break
+        if added == 0:
+            stagnant += 1
+            if stagnant >= 3:
+                break
+        else:
+            stagnant = 0
+
+    return "\n".join(lines)
 
 
 def game_already_scraped(game, existing_ids):
