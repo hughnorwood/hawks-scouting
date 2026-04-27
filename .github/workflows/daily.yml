@@ -2,18 +2,29 @@ name: Daily Pipeline
 
 on:
   schedule:
-    # 6:00 AM ET = 10:00 or 11:00 UTC depending on DST
-    # Using 10:00 UTC (6 AM EDT, 5 AM EST during winter)
-    - cron: "0 10 * * *"
+    # 9:30 PM EDT (= 01:30 UTC the next day) / 8:30 PM EST during winter.
+    # Runs on the self-hosted macOS runner (residential IP) because GC
+    # paywalls GitHub-hosted Azure datacenter IPs as of 2026-04-25.
+    # If the Mac is asleep at cron time, the job queues and runs when
+    # the Mac wakes; trigger manually via workflow_dispatch if you'd
+    # rather not wait.
+    - cron: "30 1 * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
+# Cancel any queued run when a new one is triggered — if the Mac was
+# offline for several days, we don't want to plow through a backlog
+# of stale runs once it wakes up.
+concurrency:
+  group: daily-pipeline
+  cancel-in-progress: false
+
 jobs:
   pipeline:
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+    runs-on: [self-hosted, macOS, hawks-scout]
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
