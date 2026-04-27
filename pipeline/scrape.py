@@ -138,9 +138,14 @@ UNAUTH_MARKERS = [
     '[class*="Paywall__unauthenticated"]',
     '[data-testid="mobile-sign-in-button"]',
     '[data-testid="mobile-join-us-button"]',
-    '[data-testid="sign-in-button"]',
-    '[data-testid="join-us-button"]',
 ]
+# Note: NOT including '[data-testid="sign-in-button"]' or
+# '[data-testid="join-us-button"]' (without the mobile- prefix).
+# Those elements exist on /home even when authenticated (likely in a
+# hidden account-menu drawer) and produced a false-positive
+# unauthenticated detection on the GH Actions runner. The four markers
+# above are the ones confirmed unauth-only via the scrape-debug HTML
+# inspection on 2026-04-26.
 
 PAYWALL_PROBE_JS = (
     "() => { const sels = "
