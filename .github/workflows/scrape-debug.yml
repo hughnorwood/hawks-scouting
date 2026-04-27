@@ -25,9 +25,9 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Playwright + Chromium (latest, same as daily.yml)
+      - name: Install Playwright + Chromium (pinned, same as daily.yml)
         run: |
-          pip install playwright
+          pip install 'playwright>=1.57,<1.58'
           playwright install chromium
           mkdir -p debug-output
           {

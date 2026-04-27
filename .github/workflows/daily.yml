@@ -28,8 +28,11 @@ jobs:
         run: pip install openpyxl anthropic python-dotenv
 
       - name: Install Playwright
+        # Pinned to 1.57.x → Chromium 144. Chromium 145 broke innerText on
+        # virtualized lists (silently caps GC plays page at ~16 PAs). Do not
+        # bump without re-validating pipeline/scrape.py extract_plays.
         run: |
-          pip install playwright
+          pip install 'playwright>=1.57,<1.58'
           playwright install chromium
 
       # ── Restore GC session from cache ──

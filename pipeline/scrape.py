@@ -158,57 +158,6 @@ def ensure_authenticated(page, context, dry_run):
 
 # ── Schedule parsing ──────────────────────────────────────────────────────────
 
-SCROLL_INNER_TO_BOTTOM_JS = """() => {
-  for (const el of document.querySelectorAll('*')) {
-    const cs = getComputedStyle(el);
-    if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll')
-        && el.scrollHeight > el.clientHeight) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }
-}"""
-
-LEAF_TEXT_JS = """() => {
-  const lines = [];
-  function visit(el) {
-    if (el.children.length === 0) {
-      const t = el.textContent.trim();
-      if (t) lines.push(t);
-      return;
-    }
-    for (const child of el.children) visit(child);
-  }
-  visit(document.body);
-  return lines.join('\\n');
-}"""
-
-
-def _load_and_extract(page, settle_iters=40, pause=0.4):
-    """Load all virtualized content into the DOM and return leaf-element text.
-
-    Works around Chromium 145+ innerText regression on virtualized lists
-    (body innerText returns only currently-rendered viewport text, omitting
-    DOM-mounted off-screen content). Diagnosed 2026-04-26 via
-    .github/workflows/scrape-debug.yml.
-
-    Strategy:
-      1. Repeatedly scroll every overflow:auto/scroll element to its bottom
-         until DOM element count stops growing (loads all virtualized rows).
-      2. Walk body's DOM; concatenate textContent of every leaf element
-         in document order. textContent bypasses innerText's visibility
-         restrictions while preserving structure.
-    """
-    prev_count = -1
-    for _ in range(settle_iters):
-        page.evaluate(SCROLL_INNER_TO_BOTTOM_JS)
-        time.sleep(pause)
-        curr_count = page.evaluate("document.querySelectorAll('*').length")
-        if curr_count == prev_count:
-            break
-        prev_count = curr_count
-    return page.evaluate(LEAF_TEXT_JS)
-
-
 def parse_schedule(page, team_id, team_code):
     """Navigate to a team's schedule page and return list of completed games.
 
@@ -219,10 +168,7 @@ def parse_schedule(page, team_id, team_code):
     page.goto(url, wait_until="networkidle")
     time.sleep(POLITE_DELAY)
 
-    # Load all virtualized rows before reading text or links
-    text = _load_and_extract(page)
-
-    # Get all game links with UUIDs (DOM already fully populated by _load_and_extract)
+    # Get all game links with UUIDs
     links = page.evaluate("""() => {
         const links = document.querySelectorAll('a[href*="/schedule/"]');
         return Array.from(links).map(a => ({
@@ -231,6 +177,8 @@ def parse_schedule(page, team_id, team_code):
         })).filter(l => l.uuid.length > 10);
     }""")
 
+    # Parse the schedule text for dates
+    text = page.inner_text("body")
     lines = text.split("\n")
 
     # Build ordered list of games with dates from the text
@@ -332,79 +280,32 @@ def parse_schedule(page, team_id, team_code):
 # ── Extraction ────────────────────────────────────────────────────────────────
 
 def extract_plays(page, team_id, game_uuid):
-    """Navigate to a game's plays page and accumulate text via incremental scroll.
+    """Navigate to a game's plays page and extract all visible text.
 
-    GC's plays page is genuinely virtualized — rows are unmounted as they
-    scroll past, so querySelectorAll never returns more than ~20 plays at
-    a time regardless of where you've scrolled. Earlier attempts (read body
-    once, read play elements directly, scroll-to-bottom-then-read) all
-    capped at the same ~16-20 PAs per game.
-
-    Real fix: scroll the inner container in small steps, capture
-    body.innerText after each step (which DOES return whatever's currently
-    rendered), and accumulate unique lines. The deduplicated union across
-    scroll positions reconstructs the full play list.
+    Requires Chromium <= 144 (Playwright <= 1.57.x). Chromium 145 changed
+    innerText handling on virtualized lists, returning only viewport-visible
+    content — silently caps GC's plays page at ~16 PAs. The pin is set in
+    .github/workflows/daily.yml; do not bump Playwright without re-validating
+    extract_plays output against a long-game baseline.
     """
     url = f"https://web.gc.com/teams/{team_id}/schedule/{game_uuid}/plays"
     page.goto(url, wait_until="networkidle")
     time.sleep(3)
 
-    SCROLL_STEP_JS = """(step) => {
-      let moved = false;
-      for (const el of document.querySelectorAll('*')) {
-        const cs = getComputedStyle(el);
-        if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll')
-            && el.scrollHeight > el.clientHeight) {
-          const before = el.scrollTop;
-          el.scrollTop = Math.min(el.scrollTop + step, el.scrollHeight);
-          if (el.scrollTop !== before) moved = true;
-        }
-      }
-      return moved;
-    }"""
-    RESET_TOP_JS = """() => {
-      for (const el of document.querySelectorAll('*')) {
-        const cs = getComputedStyle(el);
-        if (cs.overflowY === 'auto' || cs.overflowY === 'scroll') el.scrollTop = 0;
-      }
-    }"""
-
-    seen = set()
-    lines = []
-
-    def capture():
-        try:
-            text = page.inner_text("body")
-        except Exception:
-            return 0
-        added = 0
-        for line in text.split("\n"):
-            t = line.strip()
-            if t and t not in seen:
-                seen.add(t)
-                lines.append(t)
-                added += 1
-        return added
-
-    page.evaluate(RESET_TOP_JS)
-    time.sleep(0.5)
-    capture()
-
-    stagnant = 0
-    for _ in range(80):
-        moved = page.evaluate(SCROLL_STEP_JS, 300)
-        time.sleep(0.35)
-        added = capture()
-        if not moved:
+    # Scroll to load all content
+    prev_height = 0
+    for _ in range(20):
+        curr_height = page.evaluate("document.body.scrollHeight")
+        if curr_height == prev_height:
             break
-        if added == 0:
-            stagnant += 1
-            if stagnant >= 3:
-                break
-        else:
-            stagnant = 0
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        time.sleep(0.5)
+        prev_height = curr_height
 
-    return "\n".join(lines)
+    page.evaluate("window.scrollTo(0, 0)")
+    time.sleep(0.5)
+
+    return page.inner_text("body")
 
 
 def game_already_scraped(game, existing_ids):
