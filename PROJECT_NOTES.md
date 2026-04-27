@@ -72,7 +72,10 @@ Vercel auto-deploy — live app updated within minutes
 │   ├── validate_core.py         ← PC1-PC5 validation logic (shared by ingest.py and validate.py)
 │   ├── validate.py              ← standalone CLI: retrospective audit of ingested games
 │   ├── triage.py                ← standalone CLI: classify validator failures into buckets A-H
-│   └── reingest_batch.py        ← standalone CLI: batch retry/repair for Buckets A & B
+│   ├── reingest_batch.py        ← standalone CLI: batch retry/repair for Buckets A & B
+│   ├── normalize_opponents.py   ← standalone CLI: canonicalize Opponent field across all rows
+│   ├── leaderboards.py          ← standalone CLI: top-10 hitters/pitchers + cross-ref top 5
+│   └── scrape_debug.py          ← standalone CLI: capture full DOM snapshots for scrape diagnostics
 ├── prompts/
 │   ├── transcribe.md            ← transcription prompt (v4.2)
 │   └── ingest.md                ← ingestion prompt (v6)
@@ -317,6 +320,41 @@ Pushing `.github/workflows/` files requires the `workflow` scope on the GitHub P
 
 **Lesson:** When a UI change doesn't show up in production, check Vercel deployment status on the tip commit before assuming caching, CDN delays, or client-side issues. `npm run build` locally is a fast way to reproduce any esbuild failure. Going forward, consider wiring `npm run build` into a pre-push hook or GitHub Action check on PRs to main.
 
+### GC session silent expiry + datacenter paywall (April 25–27, 2026)
+
+**What happened:** The April 24 daily cron worked normally. From April 25 onward every cron commit landed only the most recent ~16 plays of each game's play-by-play, and ingest gates G1–G6 failed because totals didn't match. Ten games piled up across three cron runs as truncated `.md` files; none passed gates so nothing landed in the master Excel — but the working tree kept accumulating bad files.
+
+**Diagnostic chain — wrong turns first:**
+
+1. **Chromium 145 `innerText` regression on virtualized lists** — diagnosed via `scrape_debug.yml` artifact. `body.innerHTML = 113KB`, `body.innerText = 3KB`, 210 play-class elements in DOM but unreachable. Pursued for hours.
+2. **In-app workarounds attempted:** scroll-to-bottom + leaf-text walker (`995f6b8`); per-element `querySelectorAll(...).map(e => e.innerText)` (`adb36fe`); incremental scroll-and-accumulate (`dfac28b`). Each produced uniformly-truncated output across all games regardless of game length, suggesting the next theory.
+3. **Chromium pin to 1.57** (`d73711d`) — got Chromium 143; same byte-identical results to Chromium 145. Ruled out browser version entirely.
+4. **GC's plays page is virtualized, rows unmount on scroll** — proposed scroll-and-accumulate with structural dedup as the fix.
+
+**Actual root cause** (caught by the owner inspecting the saved HTML himself): the response contained `data-testid="paywall"`, `class="Paywall__unauthenticated"`, `mobile-sign-in-button`, and `mobile-join-us-button`. **The scraper was unauthenticated.** Every "16-play" sample was GC's anonymous-viewer teaser. Browser version, virtualization, IP, all irrelevant — the data wasn't in the response.
+
+**Why it slipped past `is_logged_in()`:** the previous check was just `"/login" not in page.url` after a `/home` navigation. GC serves `/home` to logged-out users with paywall content **without redirecting** — the URL stays `https://web.gc.com/home`, the check returns True, the scraper proceeds.
+
+**The next confounder — datacenter IP filtering (red herring):** After re-seeding the session locally and verifying it loaded full plays content, a CI test run *still* paywalled. We ran a controlled local-vs-CI comparison: same session, same Chromium, residential IP got 198KB of full content; GitHub-Actions Azure IP got 113KB of paywall. Concluded GC was filtering datacenter IPs, migrated the daily run to a self-hosted macOS runner on the owner's Mac.
+
+**Real cause of the local-vs-CI mismatch:** `actions/cache/save@v4` is **immutable**. The cache key `gc-session-v1` already had a stale 25KB session in it from weeks earlier. Every run of `seed-session.yml` since then logged a warning and skipped — never overwriting. The "freshly-seeded" session never made it into the cache. Local tests used the on-disk 345KB session; CI was loading the stale 25KB one. Different sessions, not different IP behavior. Bumped key to `v2` and the next CI run got full content.
+
+**Fixes that landed:**
+- `is_logged_in()` now probes the DOM for `UNAUTH_MARKERS` (paywall + mobile sign-in/join buttons), not just URL.
+- `extract_plays()` re-checks the same markers immediately after `page.goto` and `sys.exit()`s with a re-seed runbook on detection. No more silent partial writes.
+- `login()`'s post-submit check now navigates to `/home` and verifies marker absence (the URL-poll approach was buggy — successful logins regularly tripped the false-failure exit because `/login` lingered in redirect chains past the polling window).
+- Daily pipeline migrated to self-hosted macOS runner on the owner's Mac. Cron moved to 9:30 PM ET (the Mac is more reliably awake then).
+- `actions/setup-python@v5` removed — broken on self-hosted macOS (its prebuilt Python tarball hardcodes `mkdir /Users/runner/hostedtoolcache`). Workflow uses system `python3` directly.
+- Cache key bumped to `gc-session-v2`.
+
+**Lessons:**
+- **Look at the actual HTML when something seems weird.** A grep for `paywall` in the artifact would have ended this in 30 minutes instead of 3 days.
+- **GitHub Actions caches are immutable.** Re-seeding via the same key is silently a no-op. To force-refresh, bump the key (e.g., `v2` → `v3`).
+- **A precise diagnostic question beats a clever workaround.** The right tool was a debug workflow that uploaded the raw HTML, not increasingly elaborate Playwright manipulation.
+- **`is_logged_in()` checks need to probe DOM, not URL.** Modern web apps serve different content based on auth state without redirecting.
+- **Add unauth markers as positive signals, not negative ones.** "URL doesn't contain /login" is a weak negative; "DOM contains `[data-testid="paywall"]`" is a strong positive.
+- **Self-hosted runners require explicit env setup.** launchd inherits a stripped PATH; `~/actions-runner/.env` needs `PATH`, `LANG`, `RUNNER_TOOL_CACHE`.
+
 ### Vercel Analytics setup (April 19, 2026)
 **What works:** `@vercel/analytics/react` mounted once in `src/main.jsx` alongside `<App />`. Dashboard enabled in Vercel project settings. Beacons land at `/_vercel/insights/script.js` (tracker) and `/_vercel/insights/view` (page view). Verified in Incognito Network tab after the broken-build fix shipped.
 
@@ -333,12 +371,14 @@ Pushing `.github/workflows/` files requires the `workflow` scope on the GitHub P
 | Component | Detail |
 |---|---|
 | Hosting | Vercel, connected to GitHub main, auto-deploys on push |
-| CI/CD | GitHub Actions, cron 6am ET + `workflow_dispatch` |
-| GC scraping | Playwright (Python) |
+| CI/CD | GitHub Actions, cron 9:30 PM ET + `workflow_dispatch` |
+| Daily pipeline runner | **Self-hosted macOS runner** on the owner's Mac (Apple Silicon). Required because GC paywalls Azure datacenter IPs. Installed at `~/actions-runner/`, registered as launchd service, labels `[self-hosted, macOS, hawks-scout]`. |
+| GC scraping | Playwright (Python). Auth detection via DOM markers (`UNAUTH_MARKERS`); paywall guard hard-fails the run on detection. |
+| GC session cache | GitHub Actions cache, current key `gc-session-v2`. Cache is immutable; bump the key to refresh. Seeded via `seed-session.yml` after a local interactive login. |
 | API model | `claude-sonnet-4-20250514` for transcription and ingestion |
 | Excel I/O | openpyxl (Python) |
 | Secrets | `GC_USERNAME`, `GC_PASSWORD`, `ANTHROPIC_API_KEY` in GitHub Actions |
-| Local dev | `.env` file with `ANTHROPIC_API_KEY`, loaded via python-dotenv |
+| Local dev | `.env` file with `ANTHROPIC_API_KEY`, loaded via python-dotenv. GC creds via shell env vars when re-seeding session. |
 | API billing | Separate from Claude.ai Max subscription — billed at console.anthropic.com |
 
 ---
@@ -346,7 +386,11 @@ Pushing `.github/workflows/` files requires the `workflow` scope on the GitHub P
 ## Current Status (late April 2026)
 
 ### Pipeline
-- ✅ Full pipeline live and running (daily 6am ET cron + manual dispatch)
+- ✅ Full pipeline live and running (daily 9:30 PM ET cron + manual dispatch)
+- ✅ **Migrated to self-hosted macOS runner (April 27)** — required because GC paywalls Azure datacenter IPs. Runs on owner's Mac (launchd-managed agent, residential IP).
+- ✅ **GC paywall guard + DOM-marker auth detection in `scrape.py` (April 27)** — silent session expiry can no longer write partial data; `is_logged_in()` and `extract_plays()` both probe `UNAUTH_MARKERS`.
+- ✅ **Login post-submit verification rewritten (April 27)** — was URL-poll-based with frequent false-failure exits; now navigates to `/home` and checks for marker absence.
+- ✅ **GC session cache key bumped to `v2` (April 27)** — `actions/cache/save@v4` is immutable; key bump is the only way to refresh a cached value.
 - ✅ All 6 build steps complete
 - ✅ **Backfill complete — all 15 focal teams; 237 games / 7,400+ rows in repository (as of April 24)**
 - ✅ **Wilde Lake + Hammond promoted to focal teams (April 21)** — full season backfilled via daily cron plus a multi-pass manual ingest session

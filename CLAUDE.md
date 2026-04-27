@@ -43,7 +43,8 @@ The pipeline was previously a manual HITL workflow: copy-paste from GC → Claud
 │   ├── triage.py                      ← CLI: classify validator failures into buckets A-H
 │   ├── reingest_batch.py              ← CLI: batch retry/repair for buckets A & B
 │   ├── normalize_opponents.py         ← CLI: maintenance tool to canonicalize Opponent field
-│   └── leaderboards.py                ← CLI: top-10 hitters/pitchers + cross-ref top 5 (--pa, --ip)
+│   ├── leaderboards.py                ← CLI: top-10 hitters/pitchers + cross-ref top 5 (--pa, --ip)
+│   └── scrape_debug.py                ← CLI: capture full DOM snapshots for scrape diagnostics
 ├── prompts/
 │   ├── transcribe.md                  ← GC transcription prompt (v4.2, source of truth)
 │   └── ingest.md                      ← Excel ingestion prompt (v6, source of truth)
@@ -74,16 +75,19 @@ Vercel detects `package.json` and runs `npm install` + `vite build` on every dep
 
 ### Daily GitHub Actions Run
 
-1. **scrape.py** — loads GC session, checks each focal team's schedule page, identifies games not already in `games/`, downloads raw play-by-play text to `pipeline/raw/`
+Runs nightly at 9:30 PM ET on a **self-hosted macOS runner** (the owner's Mac). The runner agent is launchd-managed; if the Mac is asleep at cron time the job queues and fires when it wakes. Manual triggers via `workflow_dispatch` work the same way.
+
+1. **scrape.py** — loads GC session from Actions cache (key `gc-session-v2`), verifies auth via `is_logged_in()` paywall-marker probe, checks each focal team's schedule page, identifies games not already in `games/`, downloads raw play-by-play text to `pipeline/raw/`. Hard-fails on paywall detection (does NOT write partials).
 2. **transcribe.py** — calls Claude API with `prompts/transcribe.md`, writes `games/YYYY-MM-DD_AWAY_at_HOME.md`
 3. **ingest.py** — detects newly created (untracked) `.md` files via `git ls-files --others --exclude-standard -- games/*.md`, calls Claude API with `prompts/ingest.md`, writes Excel if all gates pass, calls `export.py`
 4. **Commit + push** — stages `games/`, `data/`, `public/repository.json`, `public/games/`; commits only if new files exist; push → Vercel auto-deploys
-5. **Any failure** → caught by `|| continue`; logged in Actions; pipeline continues to next game
+5. **Any per-game failure** → caught by `|| continue`; logged in Actions; pipeline continues to next game. **Auth failure short-circuits the whole run** — no `|| continue` rescue.
 
 ### Pipeline Resilience — Failure Modes
 
 | Failure | Exit | Behavior |
 |---|---|---|
+| GC session expired / paywall detected | 1 | scrape.py exits with re-seed runbook; nothing written; transcribe + ingest steps don't run |
 | Transcription parser can't extract Game_ID | 0 | Saved as `UNKNOWN_{raw_filename}.md`, never ingested |
 | Ingest gate failure (G1–G6) | 1 | Caught by `\|\| continue`, nothing written, logged |
 | Ingest focal team detection failure | 1 | Caught, logged, continues |
@@ -321,8 +325,37 @@ Matchup tab, Players tab, `matchupExploits()`, `buildKTGSystem()`, file upload U
 
 **Site:** `https://web.gc.com` | **Tool:** Playwright (Python)
 **Auth:** `GC_USERNAME` / `GC_PASSWORD` GitHub Actions secrets
-**Session:** persisted to `pipeline/gc_session.json` (gitignored, Actions-cached)
+**Session:** persisted to `pipeline/gc_session.json` (gitignored, Actions-cached at key `gc-session-v2`)
 **Dev:** always use `scrape.py --dry-run`
+
+### Auth detection — UNAUTH_MARKERS
+
+GC silently expires sessions and serves a `Paywall__unauthenticated` teaser to logged-out users **without redirecting to /login**. The previous URL-only auth check missed this and the scraper happily extracted paywall HTML for every game. `scrape.py` now probes the DOM for confirmed unauth-only markers:
+
+```python
+UNAUTH_MARKERS = [
+    '[data-testid="paywall"]',
+    '[class*="Paywall__unauthenticated"]',
+    '[data-testid="mobile-sign-in-button"]',
+    '[data-testid="mobile-join-us-button"]',
+]
+```
+
+These four markers are the ones empirically confirmed unauth-only via scrape-debug HTML inspection. **Do not add `[data-testid="sign-in-button"]` or `[data-testid="join-us-button"]` (without `mobile-`)** — those exist on `/home` even when authenticated and produce false positives that trigger needless re-login loops.
+
+`is_logged_in()` checks these markers on `/home` before any scraping. `extract_plays()` re-checks them on every plays page and hard-exits on detection (no partial writes). Same constants are used for post-login verification.
+
+### Re-seeding the session (HITL — required when auth fails)
+
+The login flow needs a verification code from email. CI can't do this alone.
+
+1. Locally: `export GC_USERNAME=... GC_PASSWORD=... && python3 pipeline/scrape.py`
+2. When prompted: write the email code to `pipeline/raw/code.txt` (the script polls every 1s for 120s)
+3. After "Logged in successfully", `Ctrl-C` (don't need to scrape locally) — `pipeline/gc_session.json` is now fresh
+4. `git add -f pipeline/gc_session.json && git commit -m "tmp: seed session" && git push`
+5. GitHub Actions → **Seed GC Session** → Run workflow. **Bump the cache key** (e.g., `v2` → `v3`) in both `seed-session.yml` and `daily.yml` first if the same key already exists in cache — `actions/cache/save@v4` is **immutable** and silently no-ops on conflict.
+6. After seed completes: `git rm pipeline/gc_session.json && git commit -m "Remove temp session" && git push`
+7. Trigger Daily Pipeline.
 
 ---
 
@@ -336,9 +369,23 @@ Matchup tab, Players tab, `matchupExploits()`, `buildKTGSystem()`, file upload U
 
 ## GitHub Actions Workflow (daily.yml)
 
-- **Cron:** 6am ET + `workflow_dispatch` | **Timeout:** 90 min | **Permissions:** `contents: write`
+- **Cron:** 9:30 PM ET (`30 1 * * *` UTC) + `workflow_dispatch`
+- **Runner:** `[self-hosted, macOS, hawks-scout]` — owner's Mac, residential IP. **Required**: GC paywalls Azure datacenter IPs (verified 2026-04-25); cannot run on `ubuntu-latest`.
+- **Timeout:** 90 min (covers worst-case 30-game backfill; steady-state runs finish in <10 min)
+- **Concurrency:** group `daily-pipeline`, `cancel-in-progress: false` so a backlog from extended Mac downtime doesn't pile up but in-progress work isn't killed
+- **Permissions:** `contents: write`
+- **Python:** uses system `python3` directly (`actions/setup-python@v5` is **broken** on self-hosted macOS — its prebuilt Python tarball hardcodes `mkdir /Users/runner/hostedtoolcache` and fails on permission denied under any user other than `runner`). All workflow steps use `python3 ...` and `python3 -m pip install --user ...`.
 - **git add:** `games/ data/ public/repository.json public/games/`
 - Vercel auto-deploys on push — no additional step needed
+
+### Self-hosted runner
+
+- Installed at `~/actions-runner/` on the owner's Mac (Apple Silicon, arm64)
+- Registered as a launchd service (`actions.runner.hughnorwood-hawks-scouting.hawks-scout-mac`); auto-starts at user login
+- Runner labels: `self-hosted, macOS, ARM64, hawks-scout` (first three auto-added; `hawks-scout` is the manual label tying jobs to this specific runner)
+- Service control: `cd ~/actions-runner && ./svc.sh status|stop|start`
+- Logs: `~/Library/Logs/actions.runner.hughnorwood-hawks-scouting.hawks-scout-mac/`
+- `~/actions-runner/.env` provides PATH (`/opt/homebrew/bin:/Library/Frameworks/Python.framework/Versions/3.14/bin:...`) and `RUNNER_TOOL_CACHE` because launchd inherits a stripped environment by default
 
 ---
 
@@ -374,6 +421,11 @@ Matchup tab, Players tab, `matchupExploits()`, `buildKTGSystem()`, file upload U
 - **Vercel build failures are silent to production.** Check Vercel dashboard when changes don't appear. Run `npm run build` locally to reproduce esbuild errors.
 - **`<Analytics />` mounted once in `src/main.jsx`.** Do not duplicate in `app/hawks.jsx`.
 - **Known data-quality items:** (1) `2020-04-07_STHR_at_GLNB` misdated duplicate; (2) `2026-04-04_CNTY_at_NRTE` team order reversed; (3) `STMC` alias missing from config.json.
+- **`actions/cache/save@v4` is immutable.** If a cache with the target key already exists, save logs a warning and skips — does NOT overwrite. To replace a cached value, **bump the key**. Current GC session key is `gc-session-v2`; bump to `v3` when re-seeding if the same key has been used before.
+- **Daily cron requires the Mac to be reachable.** If asleep at 9:30 PM ET, the run queues. If powered off / network-disconnected, the run waits for the runner to reconnect. Long absences will accumulate one queued run; concurrency group keeps them serialized. Manual `workflow_dispatch` from GH UI works any time the runner is online.
+- **`actions/setup-python@v5` does not work on self-hosted macOS runners** — see `daily.yml` comment. Use `python3` directly. Don't add the action back without testing.
+- **Login flow is HITL** — `scrape.py login()` waits up to 120s for `pipeline/raw/code.txt` containing the GC email verification code. Cannot be automated end-to-end in CI; see "Re-seeding the session" above.
+- **Post-login verification probes `/home` for absence of UNAUTH_MARKERS.** Earlier URL-poll-based check (`"/login" not in page.url`) was unreliable — page would redirect to `/teams` after polling expired and the script would falsely declare login failed even though it succeeded. Do not revert.
 
 ---
 
@@ -493,8 +545,11 @@ for gid in game_ids:
 ## Current State (late April 2026)
 
 ### Pipeline
-- ✅ Full pipeline live (daily 6am ET + manual dispatch)
-- ✅ Backfill complete — 15 focal teams, 237 games, 7,400+ rows (April 24)
+- ✅ Full pipeline live on self-hosted macOS runner (daily 9:30 PM ET + manual dispatch); migrated April 27 from `ubuntu-latest`
+- ✅ GC paywall guard + DOM-marker auth detection in `scrape.py` (April 27) — silent session expiry can no longer write partial data
+- ✅ Login post-submit verification rewritten to check `/home` for unauth markers (was URL-poll-based, unreliable; April 27)
+- ✅ GC session cache key bumped to `v2` (April 27) — `actions/cache/save@v4` is immutable; key bump is the only way to refresh
+- ✅ Backfill complete — 15 focal teams, 237 games, 7,400+ rows (April 24); + 7 more games landed April 27 after self-hosted runner went live
 - ✅ WLDL + HMMN promoted to focal teams (April 21); backfill complete
 - ✅ `public/games/` sync gap fixed (April 24)
 - ✅ All gate-failed focal games ingested (April 24)
