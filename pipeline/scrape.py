@@ -132,11 +132,43 @@ def save_session(context):
     context.storage_state(path=str(SESSION_FILE))
 
 
+UNAUTH_MARKERS = [
+    '[data-testid="paywall"]',
+    '[class*="Paywall__unauthenticated"]',
+    '[data-testid="mobile-sign-in-button"]',
+    '[data-testid="mobile-join-us-button"]',
+    '[data-testid="sign-in-button"]',
+    '[data-testid="join-us-button"]',
+]
+
+PAYWALL_PROBE_JS = (
+    "() => { const sels = "
+    + json.dumps(UNAUTH_MARKERS)
+    + "; return sels.filter(s => document.querySelector(s)); }"
+)
+
+
 def is_logged_in(page):
-    """Check session validity by navigating to /home."""
+    """Check session validity.
+
+    GC's plays page serves a Paywall__unauthenticated teaser to logged-out
+    users WITHOUT redirecting to /login — so URL-based checks (the previous
+    implementation) silently passed against an expired session and the
+    scraper proceeded to extract paywall HTML for every game.
+
+    This now (1) checks for /login redirect and (2) probes the DOM for any
+    of the unauth-only markers GC renders (sign-in/join-us buttons, paywall
+    container). Either signal returns False.
+    """
     page.goto("https://web.gc.com/home", wait_until="networkidle")
     time.sleep(2)
-    return "/login" not in page.url
+    if "/login" in page.url:
+        return False
+    found = page.evaluate(PAYWALL_PROBE_JS)
+    if found:
+        print(f"  [AUTH] Unauthenticated DOM markers on /home: {found}")
+        return False
+    return True
 
 
 def ensure_authenticated(page, context, dry_run):
@@ -280,17 +312,30 @@ def parse_schedule(page, team_id, team_code):
 # ── Extraction ────────────────────────────────────────────────────────────────
 
 def extract_plays(page, team_id, game_uuid):
-    """Navigate to a game's plays page and extract all visible text.
-
-    Requires Chromium <= 144 (Playwright <= 1.57.x). Chromium 145 changed
-    innerText handling on virtualized lists, returning only viewport-visible
-    content — silently caps GC's plays page at ~16 PAs. The pin is set in
-    .github/workflows/daily.yml; do not bump Playwright without re-validating
-    extract_plays output against a long-game baseline.
-    """
+    """Navigate to a game's plays page and extract all visible text."""
     url = f"https://web.gc.com/teams/{team_id}/schedule/{game_uuid}/plays"
     page.goto(url, wait_until="networkidle")
     time.sleep(3)
+
+    # Auth guard. GC serves a Paywall__unauthenticated teaser (~16 blurred
+    # plays + sign-in CTA) to logged-out users with no URL change. Without
+    # this guard, an expired session causes every game to scrape as garbage
+    # and silently fail downstream gates. Hard-exit on detection so the
+    # workflow stops cleanly instead of writing dozens of partial .md files.
+    paywall_markers = page.evaluate(PAYWALL_PROBE_JS)
+    if paywall_markers:
+        sys.exit(
+            "\n[FATAL] GC paywall detected on plays page — session expired.\n"
+            f"  URL: {url}\n"
+            f"  Markers: {paywall_markers}\n"
+            "  Re-seed the session:\n"
+            "    1. Run `python pipeline/scrape.py` locally and complete the\n"
+            "       email-code login when prompted.\n"
+            "    2. Temporarily commit the resulting pipeline/gc_session.json.\n"
+            "    3. Run the 'Seed GC Session' workflow on GitHub.\n"
+            "    4. Remove the temporary commit.\n"
+            "  Then re-run the daily pipeline.\n"
+        )
 
     # Scroll to load all content
     prev_height = 0
