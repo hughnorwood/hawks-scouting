@@ -24,7 +24,10 @@ concurrency:
 jobs:
   pipeline:
     runs-on: [self-hosted, macOS, hawks-scout]
-    timeout-minutes: 30
+    # 90 min covers a worst-case backfill (~30 games × ~90s transcribe each
+    # + scrape + ingest). Steady-state daily runs of 1-3 new games finish
+    # in well under 10 min.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
