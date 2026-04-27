@@ -332,17 +332,30 @@ def parse_schedule(page, team_id, team_code):
 # ── Extraction ────────────────────────────────────────────────────────────────
 
 def extract_plays(page, team_id, game_uuid):
-    """Navigate to a game's plays page and return its full leaf-element text.
+    """Navigate to a game's plays page and read each play element directly.
 
-    GC's plays page uses an inner scrollable container — body.scrollHeight
-    stays at viewport height regardless of play count, so window.scrollTo
-    does nothing useful. _load_and_extract handles the inner-scroll +
-    leaf-text-walker workaround (see its docstring).
+    GC's plays page uses an inner scrollable container, and Chromium 145
+    body.innerText skips virtualized off-screen content — but querying
+    each play-class element's innerText directly still works since each
+    element is read in its own context, not via body-level rendering walk.
+
+    The diagnostic at .github/workflows/scrape-debug.yml on 2026-04-26
+    showed 210 [class*="play"] elements present in the DOM. We dedupe by
+    keeping only the leaf-most matches (elements whose match isn't
+    contained by another match), which gives one entry per play row
+    instead of repeating text from every nested play-* container.
     """
     url = f"https://web.gc.com/teams/{team_id}/schedule/{game_uuid}/plays"
     page.goto(url, wait_until="networkidle")
     time.sleep(3)
-    return _load_and_extract(page)
+    return page.evaluate("""() => {
+      const all = Array.from(document.querySelectorAll('[class*="play" i]'));
+      const leaves = all.filter(el => !all.some(o => o !== el && el.contains(o)));
+      const playText = leaves.map(e => e.innerText).filter(t => t && t.trim()).join('\\n');
+      // Prepend page header / line score so transcribe.py still sees teams + score
+      const header = document.body.innerText;
+      return header + '\\n\\n' + playText;
+    }""")
 
 
 def game_already_scraped(game, existing_ids):
