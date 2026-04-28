@@ -54,10 +54,10 @@ jobs:
     runs-on: [self-hosted, macOS, hawks-scout]
     timeout-minutes: 15
 
-    env:
-      # Python's ctypes does not search /opt/homebrew/lib by default on Apple Silicon,
-      # so WeasyPrint can't find libgobject without this. See briefs/README.md.
-      DYLD_FALLBACK_LIBRARY_PATH: /opt/homebrew/lib
+    # NOTE: DYLD_FALLBACK_LIBRARY_PATH cannot be set at job/step env level on macOS —
+    # System Integrity Protection strips DYLD_* vars when bash (a SIP-protected binary)
+    # launches. We set it inline on the python3 invocation below instead; python.org
+    # Python is not SIP-protected and inherits the var across exec().
 
     steps:
       - name: Checkout
@@ -92,7 +92,7 @@ jobs:
             ARGS="$ARGS --window $WINDOW"
           fi
           echo "Running: python3 -m briefs.build $ARGS"
-          python3 -m briefs.build $ARGS
+          DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib python3 -m briefs.build $ARGS
 
       - name: Upload PDFs as workflow artifact
         uses: actions/upload-artifact@v4
