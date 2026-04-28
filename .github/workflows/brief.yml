@@ -1,0 +1,132 @@
+name: Generate Brief
+
+# On-demand only. Trigger from the Actions tab → "Generate Brief" → "Run workflow".
+on:
+  workflow_dispatch:
+    inputs:
+      team:
+        type: choice
+        description: Team code (or ALL for all 15 focal teams)
+        required: true
+        default: ALL
+        options:
+          - ALL
+          - RVRH
+          - CNTN
+          - GLNL
+          - HNTN
+          - PRKS
+          - STHR
+          - FLLS
+          - MDLT
+          - HRFD
+          - NHRF
+          - CNTY
+          - KTIS
+          - LNRC
+          - WLDL
+          - HMMN
+      window:
+        type: string
+        description: Optional — only consider games from last N days (blank = full season)
+        required: false
+        default: ""
+      commit:
+        type: boolean
+        description: Commit + push the PDF to public/briefs/ (publishes to Vercel). Uncheck for artifact-only.
+        required: true
+        default: true
+
+permissions:
+  contents: write
+
+# Serialize brief runs so a concurrent push doesn't race a commit.
+# The daily pipeline uses a separate group, so they can still overlap; the
+# rebase step before commit handles that case.
+concurrency:
+  group: brief-generation
+  cancel-in-progress: false
+
+jobs:
+  brief:
+    # Reuse the self-hosted Mac. Pango is installed there (required by WeasyPrint)
+    # and Python deps cache stays warm across runs.
+    runs-on: [self-hosted, macOS, hawks-scout]
+    timeout-minutes: 15
+
+    env:
+      # Python's ctypes does not search /opt/homebrew/lib by default on Apple Silicon,
+      # so WeasyPrint can't find libgobject without this. See briefs/README.md.
+      DYLD_FALLBACK_LIBRARY_PATH: /opt/homebrew/lib
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Python version
+        run: python3 --version
+
+      - name: Install brief dependencies
+        run: python3 -m pip install --user -r briefs/requirements.txt
+
+      - name: Validate window input
+        env:
+          WINDOW: ${{ inputs.window }}
+        run: |
+          if [ -n "$WINDOW" ] && ! [[ "$WINDOW" =~ ^[0-9]+$ ]]; then
+            echo "::error::window must be a positive integer (got: $WINDOW)"
+            exit 1
+          fi
+
+      - name: Generate brief
+        env:
+          TEAM: ${{ inputs.team }}
+          WINDOW: ${{ inputs.window }}
+        run: |
+          if [ "$TEAM" = "ALL" ]; then
+            ARGS="--all"
+          else
+            ARGS="--team $TEAM"
+          fi
+          if [ -n "$WINDOW" ]; then
+            ARGS="$ARGS --window $WINDOW"
+          fi
+          echo "Running: python3 -m briefs.build $ARGS"
+          python3 -m briefs.build $ARGS
+
+      - name: Upload PDFs as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: briefs-${{ inputs.team }}-${{ github.run_id }}
+          path: public/briefs/*.pdf
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit + push
+        if: ${{ inputs.commit }}
+        env:
+          TEAM: ${{ inputs.team }}
+          WINDOW: ${{ inputs.window }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add public/briefs/*.pdf
+
+          if git diff --cached --quiet; then
+            echo "No PDF changes to commit."
+            exit 0
+          fi
+
+          MSG="briefs: regenerate ${TEAM}"
+          if [ -n "$WINDOW" ]; then
+            MSG="$MSG (last ${WINDOW} days)"
+          fi
+          MSG="$MSG (manual)"
+          git commit -m "$MSG"
+
+          # Pull-rebase in case the daily pipeline pushed between checkout and now.
+          # The daily pipeline only touches games/, data/, public/repository.json,
+          # public/games/ — disjoint from public/briefs/, so a rebase is safe.
+          git pull --rebase origin "$(git rev-parse --abbrev-ref HEAD)"
+          git push
