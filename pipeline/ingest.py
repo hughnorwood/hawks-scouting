@@ -331,6 +331,101 @@ def parse_json_from_response(response_text):
     return None
 
 
+def canonicalize_player_names(data):
+    """Rewrite Player/Pitcher fields in `data` to canonical full-name forms
+    where possible, before appending to Excel.
+
+    Different scorers (e.g., the focal team's vs the opponent's) often log
+    the same player under different forms — short ("M Kirk") vs full
+    ("Miles Kirk") — across games. Without canonicalization at ingest time,
+    each form becomes a separate entry in the database and the app shows
+    duplicate player rows. This function builds a per-team
+    (last_name, first_initial) → canonical-full-name map from the union of
+    existing Excel rows and this game's new rows, then rewrites short forms
+    to the matching full where the bucket has exactly one full-name form.
+
+    Ambiguous buckets (2+ distinct full names sharing initial+last, e.g.
+    Kamden Twele + Kyle Twele both with initial K) are left UNTOUCHED — we
+    can't auto-disambiguate without per-game context.
+
+    Returns the number of new-row rewrites applied. Does not modify existing
+    Excel rows; a separate backfill is required for that.
+    """
+    from collections import defaultdict
+
+    def split(name):
+        if not name or name == "Unknown Player":
+            return None
+        parts = name.strip().split()
+        if len(parts) < 2:
+            return None
+        first = parts[0].rstrip(".")
+        if not first:
+            return None
+        return first, " ".join(parts[1:])
+
+    # Collect (Team, last, initial) → set of observed names from Excel + new data
+    buckets = defaultdict(set)
+
+    wb = openpyxl.load_workbook(EXCEL_FILE, read_only=True)
+    for sheet_name, name_field in (("Batting", "Player"), ("Pitching", "Pitcher"), ("Fielding", "Player")):
+        ws = wb[sheet_name]
+        headers = None
+        for row in ws.iter_rows(values_only=True):
+            if headers is None:
+                headers = list(row)
+                team_idx = headers.index("Team")
+                name_idx = headers.index(name_field)
+                continue
+            team = row[team_idx]
+            nm = row[name_idx]
+            s = split(nm)
+            if not s or not team:
+                continue
+            first, last = s
+            buckets[(team, last, first[0].upper())].add(nm)
+    wb.close()
+
+    # Add this game's rows to the buckets so a new full-form name in this
+    # game's data canonicalizes its own short-form siblings even if no prior
+    # game had the full form.
+    for sheet_data, name_field in ((data.get("batting", []), "Player"),
+                                   (data.get("pitching", []), "Pitcher"),
+                                   (data.get("fielding", []), "Player")):
+        for r in sheet_data:
+            s = split(r.get(name_field))
+            if not s:
+                continue
+            first, last = s
+            team = r.get("Team")
+            if not team:
+                continue
+            buckets[(team, last, first[0].upper())].add(r[name_field])
+
+    # Build (Team, observed_name) → canonical_full rename map
+    rename = {}
+    for (team, last, init), names in buckets.items():
+        fulls = {n for n in names if len(n.strip().split()[0].rstrip(".")) >= 2}
+        shorts = {n for n in names if len(n.strip().split()[0].rstrip(".")) == 1}
+        if len(fulls) >= 2 or not fulls or not shorts:
+            continue  # ambiguous, all-shorts, or all-fulls — nothing to do
+        canon = next(iter(fulls))
+        for s in shorts:
+            rename[(team, s)] = canon
+
+    # Apply to new rows in `data`
+    n = 0
+    for sheet_data, name_field in ((data.get("batting", []), "Player"),
+                                   (data.get("pitching", []), "Pitcher"),
+                                   (data.get("fielding", []), "Player")):
+        for r in sheet_data:
+            key = (r.get("Team"), r.get(name_field))
+            if key in rename:
+                r[name_field] = rename[key]
+                n += 1
+    return n
+
+
 def append_to_excel(data):
     """Append the extracted rows to the Excel file."""
     wb = openpyxl.load_workbook(EXCEL_FILE)
@@ -580,6 +675,14 @@ def main():
     if data.get("duplicate", False):
         print("\nDuplicate flag set in response — not writing.")
         sys.exit(0)
+
+    # Canonicalize player names against the existing Excel state so this
+    # game's rows merge with prior games' stats. Different scorers use
+    # different forms ("M Kirk" vs "Miles Kirk") for the same player; without
+    # this, the app shows duplicate per-player rows.
+    n_renamed = canonicalize_player_names(data)
+    if n_renamed:
+        print(f"\nCanonicalized {n_renamed} player name(s) to existing full forms.")
 
     # Write to Excel
     print("\nAll gates passed — appending to Excel...")
