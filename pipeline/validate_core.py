@@ -143,7 +143,7 @@ class ValidationReport:
 
 # Match a structured play-log row: | # | inning | half | batter | ...
 PLAY_ROW_RE = re.compile(
-    r'^\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(Top|Bottom|T|B)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*(\d*)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|?\s*$',
+    r'^\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(Top|Bottom|T|Bot|B)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*(\d*)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|?\s*$',
     re.MULTILINE
 )
 
