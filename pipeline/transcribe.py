@@ -27,6 +27,8 @@ try:
 except ImportError:
     sys.exit("anthropic is required: pip install anthropic")
 
+from dedup import find_all_existing_games, load_focal_index
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROMPTS_DIR = REPO_ROOT / "prompts"
 GAMES_DIR = REPO_ROOT / "games"
@@ -160,11 +162,12 @@ def pre_check_duplicate(raw_filename):
     """Check if a game for this team+date already exists in games/ BEFORE calling the API.
 
     Raw filenames follow the pattern: TEAM_YYYY-MM-DD_opponent_uuid.txt
-    Existing game files follow: YYYY-MM-DD_AWAY_at_HOME.md
+    Existing game files follow: YYYY-MM-DD_AWAY_at_HOME.md, where the team
+    code may be the focal team's canonical code OR an alias (HRFR for HRFD,
+    NRTH for NHRF, etc.). Alias resolution is delegated to dedup.py.
 
     For doubleheaders (multiple games on the same date for the same team),
-    we count how many existing .md files match vs how many raw files exist
-    for the same team+date. Only skip if all games for that date are covered.
+    only skip if we already have as many .md files as raw files for this date.
     """
     m = re.match(r"([A-Z]{3,5})_(\d{4}-\d{2}-\d{2})_", raw_filename)
     if not m:
@@ -173,19 +176,26 @@ def pre_check_duplicate(raw_filename):
     team_code = m.group(1)
     date_str = m.group(2)
 
-    if not GAMES_DIR.exists():
-        return False, None
+    focal_by_code, known_opponent_codes = load_focal_index()
+    focal_entry = focal_by_code.get(team_code)
+    if not focal_entry:
+        existing = [p.stem for p in GAMES_DIR.glob(f"{date_str}_*.md") if team_code in p.stem]
+        return (bool(existing), existing[0] if existing else None)
 
-    # Count existing .md files for this team+date
-    existing = [p.stem for p in GAMES_DIR.glob("*.md") if date_str in p.stem and team_code in p.stem]
+    matches = find_all_existing_games(
+        date_str=date_str,
+        focal_code=team_code,
+        focal_aliases=focal_entry.get("aliases", []),
+        focal_display_name=focal_entry.get("display_name", team_code),
+        known_opponent_codes=known_opponent_codes,
+        games_dir=GAMES_DIR,
+    )
 
-    # Count raw files for this team+date (to detect doubleheaders)
     raw_dir = Path(__file__).resolve().parent / "raw"
     raw_count = len(list(raw_dir.glob(f"{team_code}_{date_str}_*.txt")))
 
-    # Only skip if we already have as many .md files as raw files for this date
-    if existing and len(existing) >= raw_count:
-        return True, existing[0]
+    if matches and len(matches) >= raw_count:
+        return True, matches[0]
 
     return False, None
 

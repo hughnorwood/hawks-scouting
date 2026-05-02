@@ -57,6 +57,16 @@ jobs:
           path: pipeline/gc_session.json
           key: gc-session-v2
 
+      # ── Clean stale raw files ──
+      # The self-hosted runner's working tree persists between runs, and
+      # pipeline/raw/ is gitignored — so leftover .txt files from previous
+      # runs accumulate forever. Without this step, the transcribe loop
+      # below re-feeds every stale file to the Claude API every night.
+      - name: Clean stale raw files
+        run: |
+          mkdir -p pipeline/raw
+          rm -f pipeline/raw/*.txt
+
       # ── Scrape ──
       - name: Scrape new games from GameChanger
         env:
