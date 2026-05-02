@@ -32,6 +32,8 @@ try:
 except ImportError:
     sys.exit("playwright is required: pip install playwright && python -m playwright install chromium")
 
+from dedup import find_existing_game, load_focal_index
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PIPELINE_DIR = REPO_ROOT / "pipeline"
 SESSION_FILE = PIPELINE_DIR / "gc_session.json"
@@ -62,6 +64,11 @@ def get_existing_game_ids():
     if not GAMES_DIR.exists():
         return set()
     return {p.stem for p in GAMES_DIR.glob("*.md")}
+
+
+def build_team_lookup():
+    """Index for alias-aware dedup: (focal_by_code, known_opponent_codes)."""
+    return load_focal_index()
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -359,18 +366,22 @@ def extract_plays(page, team_id, game_uuid):
     return page.inner_text("body")
 
 
-def game_already_scraped(game, existing_ids):
-    """Check if this game likely already exists in games/ by date and team code.
+def game_already_scraped(game, focal_entry, known_opponent_codes):
+    """Check if this game already exists in games/ via alias-aware lookup.
 
-    Since we don't know the exact Game_ID until transcription, we check if
-    any existing .md file matches the date and team code.
+    `focal_entry` is the focal-team object: must have keys "display_name"
+    and (optionally) "aliases". Colliding aliases (codes that are also
+    legitimate non-focal opponents) are disambiguated by inspecting the
+    candidate .md's Teams: line.
     """
-    date = game["date"]
-    code = game["team_code"]
-    for gid in existing_ids:
-        if date in gid and code in gid:
-            return True, gid
-    return False, None
+    stem = find_existing_game(
+        date_str=game["date"],
+        focal_code=game["team_code"],
+        focal_aliases=focal_entry.get("aliases", []),
+        focal_display_name=focal_entry.get("display_name", game["team_code"]),
+        known_opponent_codes=known_opponent_codes,
+    )
+    return (stem is not None), stem
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -383,6 +394,7 @@ def main():
 
     config = load_config()
     existing_ids = get_existing_game_ids()
+    focal_by_code, known_opponent_codes = build_team_lookup()
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     GAMES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -440,8 +452,10 @@ def main():
 
             total_found += len(games)
 
+            focal_entry = focal_by_code.get(team_code, {"display_name": team_name, "aliases": []})
+
             for game in games:
-                already_done, existing_id = game_already_scraped(game, existing_ids)
+                already_done, existing_id = game_already_scraped(game, focal_entry, known_opponent_codes)
                 if already_done:
                     print(f"  SKIP: {game['date']} {game['opponent_name'][:30]} — already in games/ as {existing_id}")
                     total_skipped += 1
