@@ -13,8 +13,8 @@
 **Line Score:**
 ```
         1  2  3  4  5  6  7
-NRTH    2  0  1  0  0  1  3
-NRTH    0  0  1  0  1  1  3
+NHRF    2  0  1  0  0  1  3
+NRTE    0  0  1  0  1  1  3
 ```
 
 **Team Totals:**

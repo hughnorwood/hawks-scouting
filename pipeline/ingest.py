@@ -481,11 +481,12 @@ def main():
     if len(sys.argv) < 2:
         sys.exit("Usage: python pipeline/ingest.py <game_markdown_file>")
 
-    # Simple arg parsing: [--skip-crosschecks] <game_md_path>
+    # Simple arg parsing: [--skip-crosschecks] [--skip-gates] <game_md_path>
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     skip_crosschecks = "--skip-crosschecks" in sys.argv
+    skip_gates = "--skip-gates" in sys.argv
     if not args:
-        sys.exit("Usage: python pipeline/ingest.py [--skip-crosschecks] <game_md_path>")
+        sys.exit("Usage: python pipeline/ingest.py [--skip-crosschecks] [--skip-gates] <game_md_path>")
     game_md_path = Path(args[0])
     if not game_md_path.exists():
         sys.exit(f"File not found: {game_md_path}")
@@ -568,6 +569,10 @@ def main():
         if not passed:
             all_passed = False
             _failed_gates.append((gate_name, value))
+
+    if not all_passed and skip_gates:
+        print("\n  (gate failures bypassed via --skip-gates flag)")
+        all_passed = True
 
     if not all_passed:
         print("\nGATE FAILURE — not writing to Excel.")

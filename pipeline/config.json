@@ -74,7 +74,7 @@
     { "code": "NRCO", "display_name": "North County",        "name_patterns": ["north county"] },
     { "code": "NRCL", "display_name": "North Caroline",      "name_patterns": ["north caroline"] },
     { "code": "NRPT", "display_name": "North Point",         "name_patterns": ["north point"] },
-    { "code": "NRTE", "display_name": "Northeast",           "name_patterns": ["northeast"] },
+    { "code": "NRTE", "display_name": "Northeast",           "name_patterns": ["northeast", "north east"] },
     { "code": "NRTH", "display_name": "Northern",            "name_patterns": ["nrth"] },
     { "code": "NRTN", "display_name": "Northern",            "name_patterns": ["northern high", "northern varsity", "northern hs", "northern patriots"] },
     { "code": "NWST", "display_name": "Northwest",           "name_patterns": ["northwest"] },
