@@ -1,14 +1,9 @@
 name: Daily Pipeline
 
 on:
-  schedule:
-    # 9:30 PM EDT (= 01:30 UTC the next day) / 8:30 PM EST during winter.
-    # Runs on the self-hosted macOS runner (residential IP) because GC
-    # paywalls GitHub-hosted Azure datacenter IPs as of 2026-04-25.
-    # If the Mac is asleep at cron time, the job queues and runs when
-    # the Mac wakes; trigger manually via workflow_dispatch if you'd
-    # rather not wait.
-    - cron: "30 1 * * *"
+  # Nightly cron disabled post-season (2026-05-05). Trigger manually via
+  # workflow_dispatch when a refresh is needed. To re-enable, restore the
+  # `schedule:` block below with cron "30 1 * * *" (9:30 PM EDT).
   workflow_dispatch: {}
 
 permissions:
