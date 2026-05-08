@@ -1,160 +1,160 @@
 # Top-10 Leaderboards
 
-_Generated 2026-04-26 22:23 UTC_  
-_Thresholds: hitters PA > 35 · pitchers IP > 14_  
-_Hitters qualified: 75 · pitchers qualified: 40 · games processed: 186_
+_Generated 2026-05-08 18:51 UTC_  
+_Thresholds: hitters PA > 60 · pitchers IP > 20_  
+_Hitters qualified: 60 · pitchers qualified: 38 · games processed: 216_
 
-### HITTING — Top 10 AVG (PA > 35)
+### HITTING — Top 10 AVG (PA > 60)
 
 | Player | Team | G | PA | AB | H | AVG |
 |---|---|---|---|---|---|---|
-| J Norwood | River Hill | 17 | 69 | 44 | 26 | .591 |
-| C Reis | River Hill | 16 | 59 | 47 | 26 | .553 |
-| C Godlove | Middletown | 13 | 67 | 44 | 24 | .545 |
-| N Burd | North Harford | 11 | 47 | 39 | 21 | .538 |
-| B Yates | Long Reach | 12 | 56 | 47 | 25 | .532 |
-| R Evans | Century | 15 | 66 | 49 | 26 | .531 |
-| L Restivo | Long Reach | 13 | 43 | 29 | 15 | .517 |
-| M Gardner | Hereford | 15 | 50 | 35 | 18 | .514 |
-| Braeden Garris | Hammond | 10 | 41 | 35 | 18 | .514 |
-| T Barrick | Middletown | 13 | 57 | 45 | 23 | .511 |
+| Bobby Yates | Long Reach | 20 | 86 | 71 | 37 | .521 |
+| J Norwood | River Hill | 22 | 90 | 62 | 31 | .500 |
+| Cory Godlove | Middletown | 20 | 93 | 62 | 31 | .500 |
+| Gavin Crandell | Southern | 21 | 78 | 67 | 32 | .478 |
+| Collin Reis | River Hill | 22 | 79 | 63 | 30 | .476 |
+| Bryce Crandell | Southern | 22 | 84 | 59 | 28 | .475 |
+| Daniel Metz | Hereford | 19 | 73 | 57 | 27 | .474 |
+| Carson Naecker | River Hill | 23 | 81 | 66 | 31 | .470 |
+| Ryan Evans | Century | 17 | 77 | 60 | 28 | .467 |
+| Nate Burd | North Harford | 17 | 73 | 60 | 28 | .467 |
 
-### HITTING — Top 10 OPS (PA > 35)
+### HITTING — Top 10 OPS (PA > 60)
 
 | Player | Team | G | PA | OBP | SLG | OPS |
 |---|---|---|---|---|---|---|
-| J Norwood | River Hill | 17 | 69 | .716 | 1.000 | 1.716 |
-| M Gardner | Hereford | 15 | 50 | .653 | 1.029 | 1.682 |
-| C Kight | North Harford | 10 | 41 | .683 | .920 | 1.603 |
-| D Metz | Hereford | 15 | 57 | .576 | 1.000 | 1.576 |
-| K Metz | Hereford | 15 | 54 | .574 | 1.000 | 1.574 |
-| R Evans | Century | 15 | 66 | .646 | .857 | 1.503 |
-| M Harmon | Kent Island | 11 | 37 | .667 | .750 | 1.417 |
-| C Godlove | Middletown | 13 | 67 | .710 | .705 | 1.415 |
-| N Burd | North Harford | 11 | 47 | .617 | .795 | 1.412 |
-| B Yates | Long Reach | 12 | 56 | .593 | .745 | 1.337 |
+| Daniel Metz | Hereford | 19 | 73 | .575 | 1.000 | 1.575 |
+| Kreis Metz | Hereford | 20 | 73 | .575 | .946 | 1.522 |
+| J Norwood | River Hill | 22 | 90 | .636 | .871 | 1.507 |
+| Bryce Crandell | Southern | 22 | 84 | .619 | .864 | 1.483 |
+| Cory Godlove | Middletown | 20 | 93 | .674 | .677 | 1.351 |
+| Ryan Evans | Century | 17 | 77 | .600 | .750 | 1.350 |
+| Noah McMurray | Huntingtown | 21 | 71 | .567 | .778 | 1.345 |
+| Merrick Gardner | Hereford | 20 | 69 | .559 | .776 | 1.334 |
+| Bobby Yates | Long Reach | 20 | 86 | .585 | .676 | 1.261 |
+| Logan Restivo | Long Reach | 21 | 66 | .623 | .617 | 1.240 |
 
 ### HITTING — Top 10 Total Hits (no threshold)
 
 | Player | Team | G | PA | AB | H | AVG |
 |---|---|---|---|---|---|---|
-| C Reis | River Hill | 16 | 59 | 47 | 26 | .553 |
-| J Norwood | River Hill | 17 | 69 | 44 | 26 | .591 |
-| R Evans | Century | 15 | 66 | 49 | 26 | .531 |
-| B Yates | Long Reach | 12 | 56 | 47 | 25 | .532 |
-| C Godlove | Middletown | 13 | 67 | 44 | 24 | .545 |
-| D Metz | Hereford | 15 | 57 | 47 | 23 | .489 |
-| T Barrick | Middletown | 13 | 57 | 45 | 23 | .511 |
-| E Baker | Century | 13 | 56 | 48 | 22 | .458 |
-| C Naecker | River Hill | 17 | 59 | 47 | 21 | .447 |
-| N Burd | North Harford | 11 | 47 | 39 | 21 | .538 |
+| Bobby Yates | Long Reach | 20 | 86 | 71 | 37 | .521 |
+| Gavin Crandell | Southern | 21 | 78 | 67 | 32 | .478 |
+| J Norwood | River Hill | 22 | 90 | 62 | 31 | .500 |
+| Carson Naecker | River Hill | 23 | 81 | 66 | 31 | .470 |
+| Cory Godlove | Middletown | 20 | 93 | 62 | 31 | .500 |
+| Tyler Barrick | Middletown | 20 | 82 | 67 | 31 | .463 |
+| Collin Reis | River Hill | 22 | 79 | 63 | 30 | .476 |
+| Jacob McFarling | Long Reach | 21 | 76 | 70 | 29 | .414 |
+| Bryce Crandell | Southern | 22 | 84 | 59 | 28 | .475 |
+| Ryan Evans | Century | 17 | 77 | 60 | 28 | .467 |
 
-### HITTING — Top 10 Quality At-Bats (PA > 35)
+### HITTING — Top 10 Quality At-Bats (PA > 60)
 
 | Player | Team | PA | 6+pitch PAs | QAB | QAB% |
 |---|---|---|---|---|---|
-| J Norwood | River Hill | 69 | 9 | 37 | 53.6% |
-| B Crandell | Southern | 63 | 18 | 37 | 58.7% |
-| R Evans | Century | 66 | 14 | 34 | 51.5% |
-| R Bolger | Huntingtown | 60 | 14 | 33 | 55.0% |
-| C Reis | River Hill | 59 | 8 | 31 | 52.5% |
-| J Cadden | Huntingtown | 65 | 6 | 31 | 47.7% |
-| R Gaetano | Huntingtown | 56 | 16 | 31 | 55.4% |
-| M Gardner | Hereford | 50 | 15 | 30 | 60.0% |
-| N McMurray | Huntingtown | 56 | 9 | 29 | 51.8% |
-| G Crandell | Southern | 54 | 4 | 29 | 53.7% |
+| J Norwood | River Hill | 90 | 11 | 46 | 51.1% |
+| Braeden Garris | Hammond | 67 | 10 | 23 | 34.3% |
+| Gavin Draminski | Hammond | 62 | 8 | 20 | 32.3% |
+| Peter Yarnell | Hammond | 65 | 5 | 17 | 26.2% |
+| Collin Stryker | Hammond | 64 | 5 | 17 | 26.6% |
+| Bryce Crandell | Southern | 84 | 7 | 16 | 19.0% |
+| Gavin Crandell | Southern | 78 | 3 | 16 | 20.5% |
+| Yaxiel Rivera | Hammond | 63 | 4 | 15 | 23.8% |
+| Nick Youmans | Southern | 70 | 2 | 14 | 20.0% |
+| Aiden Gauthier | Centennial | 71 | 2 | 12 | 16.9% |
 
-### PITCHING — Top 10 ERA (IP > 14, lower better)
+### PITCHING — Top 10 ERA (IP > 20, lower better)
 
 | Pitcher | Team | G | IP | BF | R | ERA |
 |---|---|---|---|---|---|---|
-| A Lee | Centennial | 5 | 21.0 | 94 | 4 | 1.71 |
-| T Merritt | Parkside | 4 | 16.0 | 63 | 4 | 2.25 |
+| Miles Kirk | Glenelg | 7 | 23.0 | 96 | 3 | 1.17 |
 | J Jenkins | River Hill | 8 | 25.1 | 102 | 7 | 2.49 |
-| B Conlon | Glenelg | 6 | 18.0 | 83 | 5 | 2.50 |
-| R Walsh | River Hill | 9 | 28.2 | 118 | 9 | 2.83 |
-| R Coulby | Middletown | 6 | 39.2 | 157 | 13 | 2.95 |
-| D Grossi | Kent Island | 4 | 20.1 | 88 | 7 | 3.10 |
-| J Greenwood | Hereford | 6 | 23.0 | 98 | 9 | 3.52 |
-| E Rayne | Centennial | 5 | 15.0 | 67 | 6 | 3.60 |
-| L Baierlein | Kent Island | 5 | 15.0 | 52 | 6 | 3.60 |
+| Aiden Lee | Centennial | 7 | 32.1 | 140 | 9 | 2.51 |
+| Ryan Coulby | Middletown | 9 | 52.2 | 207 | 15 | 2.56 |
+| Evan Rayne | Centennial | 6 | 21.0 | 91 | 6 | 2.57 |
+| Austin Kinhart | Parkside | 8 | 20.2 | 80 | 7 | 3.05 |
+| Casey Stachera | Centennial | 7 | 32.0 | 126 | 11 | 3.09 |
+| Jameson Greenwood | Hereford | 9 | 34.0 | 135 | 12 | 3.18 |
+| Derek Grossi | Kent Island | 6 | 33.2 | 142 | 12 | 3.21 |
+| Reese Conley | Fallston | 7 | 36.0 | 171 | 13 | 3.25 |
 
-### PITCHING — Top 10 WHIP (IP > 14, lower better)
+### PITCHING — Top 10 WHIP (IP > 20, lower better)
 
 | Pitcher | Team | G | IP | H | BB | WHIP |
 |---|---|---|---|---|---|---|
-| R Coulby | Middletown | 6 | 39.2 | 10 | 22 | 0.81 |
-| T Merritt | Parkside | 4 | 16.0 | 5 | 8 | 0.81 |
-| C Stachera | Centennial | 5 | 19.2 | 13 | 4 | 0.86 |
-| C Smith | Hereford | 7 | 15.0 | 8 | 7 | 1.00 |
-| Darsh Bhatt | Hammond | 5 | 17.0 | 11 | 7 | 1.06 |
+| Ryan Coulby | Middletown | 9 | 52.2 | 16 | 23 | 0.74 |
+| Casey Stachera | Centennial | 7 | 32.0 | 18 | 8 | 0.81 |
+| Tristan Merritt | Parkside | 7 | 32.0 | 13 | 17 | 0.94 |
+| Miles Kirk | Glenelg | 7 | 23.0 | 10 | 13 | 1.00 |
+| Austin Kinhart | Parkside | 8 | 20.2 | 13 | 8 | 1.02 |
 | J Jenkins | River Hill | 8 | 25.1 | 18 | 9 | 1.07 |
-| N McMurray | Huntingtown | 6 | 25.2 | 17 | 11 | 1.09 |
-| R Walsh | River Hill | 9 | 28.2 | 14 | 18 | 1.12 |
-| J Greenwood | Hereford | 6 | 23.0 | 21 | 7 | 1.22 |
-| I Benson | Southern | 9 | 18.1 | 13 | 10 | 1.25 |
+| Evan Rayne | Centennial | 6 | 21.0 | 13 | 11 | 1.14 |
+| Jameson Greenwood | Hereford | 9 | 34.0 | 27 | 12 | 1.15 |
+| Derek Grossi | Kent Island | 6 | 33.2 | 28 | 11 | 1.16 |
+| Jon Hughes | Century | 9 | 20.2 | 17 | 8 | 1.21 |
 
 ### PITCHING — Top 10 Total IP (no threshold)
 
 | Pitcher | Team | G | IP | BF | K | ERA |
 |---|---|---|---|---|---|---|
-| R Coulby | Middletown | 6 | 39.2 | 157 | 36 | 2.95 |
-| N Smith | Long Reach | 6 | 39.1 | 180 | 42 | 6.86 |
-| R Walsh | River Hill | 9 | 28.2 | 118 | 33 | 2.83 |
-| N Youmans | Southern | 7 | 28.0 | 127 | 28 | 8.04 |
-| R Kessler | Huntingtown | 6 | 26.1 | 123 | 23 | 5.81 |
-| R Conley | Fallston | 5 | 26.0 | 129 | 38 | 4.15 |
-| N McMurray | Huntingtown | 6 | 25.2 | 103 | 32 | 4.91 |
-| J Jenkins | River Hill | 8 | 25.1 | 102 | 36 | 2.49 |
-| J Greenwood | Hereford | 6 | 23.0 | 98 | 28 | 3.52 |
-| L Gantt | North Harford | 6 | 21.2 | 108 | 30 | 10.38 |
+| Ryan Coulby | Middletown | 9 | 52.2 | 207 | 48 | 2.56 |
+| Nathan Smith | Long Reach | 9 | 51.1 | 230 | 50 | 6.49 |
+| Collin Stryker | Hammond | 8 | 37.1 | 165 | 29 | 11.81 |
+| Bobby Yates | Long Reach | 9 | 36.2 | 166 | 23 | 6.38 |
+| Reese Conley | Fallston | 7 | 36.0 | 171 | 53 | 3.25 |
+| Ryan Walsh | River Hill | 12 | 35.2 | 151 | 34 | 5.30 |
+| Noah McMurray | Huntingtown | 8 | 35.2 | 145 | 46 | 5.30 |
+| Jameson Greenwood | Hereford | 9 | 34.0 | 135 | 40 | 3.18 |
+| Derek Grossi | Kent Island | 6 | 33.2 | 142 | 35 | 3.21 |
+| Aiden Lee | Centennial | 7 | 32.1 | 140 | 29 | 2.51 |
 
-### PITCHING — Top 10 First-Pitch Strike % (IP > 14, FP_total ≥ 30)
+### PITCHING — Top 10 First-Pitch Strike % (IP > 20, FP_total ≥ 30)
 
 | Pitcher | Team | IP | First Pitches | FP Strikes | FPS% |
 |---|---|---|---|---|---|
-| J Greenwood | Hereford | 23.0 | 84 | 59 | 70.2% |
-| P Burgee | Westminster | 17.0 | 43 | 29 | 67.4% |
-| A Lee | Centennial | 21.0 | 66 | 44 | 66.7% |
-| C Rowinski | Century | 17.0 | 73 | 48 | 65.8% |
-| H Zhang | River Hill | 19.2 | 77 | 50 | 64.9% |
-| R Whitney | Patuxent | 14.1 | 51 | 33 | 64.7% |
-| G Crandell | Southern | 18.1 | 88 | 56 | 63.6% |
-| B Yates | Long Reach | 17.0 | 95 | 60 | 63.2% |
-| E Rayne | Centennial | 15.0 | 65 | 41 | 63.1% |
-| A Espejo | North Point | 15.0 | 34 | 21 | 61.8% |
+| Jameson Greenwood | Hereford | 34.0 | 84 | 59 | 70.2% |
+| Chris Rowinski | Century | 27.0 | 82 | 56 | 68.3% |
+| Austin Kinhart | Parkside | 20.2 | 60 | 40 | 66.7% |
+| Hansen Zhang | River Hill | 23.2 | 94 | 62 | 66.0% |
+| Aiden Lee | Centennial | 32.1 | 94 | 62 | 66.0% |
+| Bobby Yates | Long Reach | 36.2 | 135 | 88 | 65.2% |
+| Tommy Sommer | Wilde Lake | 25.0 | 118 | 76 | 64.4% |
+| Noah McMurray | Huntingtown | 35.2 | 114 | 73 | 64.0% |
+| Gavin Crandell | Southern | 29.1 | 138 | 87 | 63.0% |
+| Collin Stryker | Hammond | 37.1 | 154 | 96 | 62.3% |
 
-### PITCHING — Top 10 K/BB (IP > 14)
+### PITCHING — Top 10 K/BB (IP > 20)
 
 | Pitcher | Team | IP | K | BB | K/BB |
 |---|---|---|---|---|---|
-| C Stachera | Centennial | 19.2 | 33 | 4 | 8.25 |
-| N Smith | Long Reach | 39.1 | 42 | 9 | 4.67 |
+| Casey Stachera | Centennial | 32.0 | 49 | 8 | 6.12 |
+| Chris Rowinski | Century | 27.0 | 24 | 5 | 4.80 |
 | J Jenkins | River Hill | 25.1 | 36 | 9 | 4.00 |
-| J Greenwood | Hereford | 23.0 | 28 | 7 | 4.00 |
-| T Merritt | Parkside | 16.0 | 29 | 8 | 3.62 |
-| R Whitney | Patuxent | 14.1 | 18 | 5 | 3.60 |
-| D Califano | Century | 18.2 | 19 | 6 | 3.17 |
-| A Lee | Centennial | 21.0 | 25 | 8 | 3.12 |
-| N McMurray | Huntingtown | 25.2 | 32 | 11 | 2.91 |
-| C Rowinski | Century | 17.0 | 14 | 5 | 2.80 |
+| Nathan Smith | Long Reach | 51.1 | 50 | 13 | 3.85 |
+| Jameson Greenwood | Hereford | 34.0 | 40 | 12 | 3.33 |
+| Derek Grossi | Kent Island | 33.2 | 35 | 11 | 3.18 |
+| Robbie Kessler | Huntingtown | 31.1 | 34 | 11 | 3.09 |
+| Noah McMurray | Huntingtown | 35.2 | 46 | 16 | 2.88 |
+| Tristan Merritt | Parkside | 32.0 | 46 | 17 | 2.71 |
+| Aiden Lee | Centennial | 32.1 | 29 | 11 | 2.64 |
 
 ### HITTERS — TOP 5 most frequently in top-10s
 
 | Rank | Player | Team | # Lists | Lists |
 |---|---|---|---|---|
 | 1 | J Norwood | River Hill | 4 | AVG, OPS, Hits, QAB |
-| 2 | R Evans | Century | 4 | AVG, OPS, Hits, QAB |
-| 3 | C Reis | River Hill | 3 | AVG, Hits, QAB |
-| 4 | C Godlove | Middletown | 3 | AVG, OPS, Hits |
-| 5 | N Burd | North Harford | 3 | AVG, OPS, Hits |
+| 2 | Bryce Crandell | Southern | 4 | AVG, OPS, Hits, QAB |
+| 3 | Bobby Yates | Long Reach | 3 | AVG, OPS, Hits |
+| 4 | Cory Godlove | Middletown | 3 | AVG, OPS, Hits |
+| 5 | Gavin Crandell | Southern | 3 | AVG, Hits, QAB |
 
 ### PITCHERS — TOP 5 most frequently in top-10s
 
 | Rank | Player | Team | # Lists | Lists |
 |---|---|---|---|---|
-| 1 | J Greenwood | Hereford | 5 | ERA, WHIP, IP, FPS%, K/BB |
-| 2 | J Jenkins | River Hill | 4 | ERA, WHIP, IP, K/BB |
-| 3 | A Lee | Centennial | 3 | ERA, FPS%, K/BB |
-| 4 | T Merritt | Parkside | 3 | ERA, WHIP, K/BB |
-| 5 | R Walsh | River Hill | 3 | ERA, WHIP, IP |
+| 1 | Jameson Greenwood | Hereford | 5 | ERA, WHIP, IP, FPS%, K/BB |
+| 2 | Aiden Lee | Centennial | 4 | ERA, IP, FPS%, K/BB |
+| 3 | Derek Grossi | Kent Island | 4 | ERA, WHIP, IP, K/BB |
+| 4 | J Jenkins | River Hill | 3 | ERA, WHIP, K/BB |
+| 5 | Ryan Coulby | Middletown | 3 | ERA, WHIP, IP |
