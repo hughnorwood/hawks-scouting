@@ -10,10 +10,12 @@ Usage:
   python pipeline/transcribe.py pipeline/raw/stub_game_raw.txt
 """
 
+import json
 import os
 import re
 import sys
 import time
+from datetime import date
 from pathlib import Path
 
 try:
@@ -32,9 +34,87 @@ from dedup import find_all_existing_games, load_focal_index
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROMPTS_DIR = REPO_ROOT / "prompts"
 GAMES_DIR = REPO_ROOT / "games"
+PIPELINE_DIR = REPO_ROOT / "pipeline"
+CONFIG_FILE = PIPELINE_DIR / "config.json"
 
 MODEL = "claude-sonnet-4-20250514"
 MAX_TOKENS = 16000
+
+# Maximum allowed gap between a parsed Game_ID date and the raw filename's
+# date. Larger gaps almost always mean the parser locked onto a stray 4-digit
+# substring (the May-7 2026 → 2020/2024 incident).
+MAX_DATE_DRIFT_DAYS = 3
+
+
+def _parse_raw_filename(raw_filename):
+    """Return (focal_team_code, date_str) parsed from a raw filename, or (None, None).
+
+    Raw filenames are produced by scrape.py and follow the strict pattern
+    `TEAM_YYYY-MM-DD_opponent_uuid.txt`.
+    """
+    m = re.match(r"([A-Z]{3,5})_(\d{4}-\d{2}-\d{2})_", raw_filename)
+    if not m:
+        return None, None
+    return m.group(1), m.group(2)
+
+
+def _date_diff_days(a, b):
+    """Absolute day-difference between two YYYY-MM-DD strings, or None on parse failure."""
+    try:
+        ya, ma, da = (int(x) for x in a.split("-"))
+        yb, mb, db = (int(x) for x in b.split("-"))
+        return abs((date(ya, ma, da) - date(yb, mb, db)).days)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _load_team_registry():
+    """Build (pattern, code) pairs from config.json, longest-pattern-first.
+
+    Mirrors ingest.load_team_registry — duplicated here to keep transcribe.py
+    free of import cycles with ingest.py.
+    """
+    try:
+        config = json.loads(CONFIG_FILE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    registry = []
+    for team in config.get("focal_teams", []):
+        for pattern in team.get("name_patterns", []):
+            registry.append((pattern.lower(), team["code"]))
+    for team in config.get("known_opponents", []):
+        for pattern in team.get("name_patterns", []):
+            registry.append((pattern.lower(), team["code"]))
+    registry.sort(key=lambda x: -len(x[0]))
+    return registry
+
+
+def _resolve_name_to_code(full_name, registry):
+    name_lower = (full_name or "").lower().strip()
+    if not name_lower:
+        return None
+    for pattern, code in registry:
+        if pattern in name_lower:
+            return code
+    return None
+
+
+def _extract_teams_line(header):
+    """Parse the markdown header's "Teams:" line and return [away_name, home_name] or []."""
+    teams_match = re.search(r'Teams[:\*]*\s*(.+)', header)
+    if not teams_match:
+        return []
+    line = teams_match.group(1).strip()
+    parts = re.split(r'\s*(?:vs\.?|/|@)\s*', line, maxsplit=1)
+    if len(parts) != 2:
+        return []
+    names = []
+    for part in parts:
+        name = re.sub(r'\s*\(?(away|home)\)?\s*$', '', part.strip(), flags=re.I)
+        name = re.sub(r'\s*\(?[A-Z]{3,5}\)?\s*$', '', name).strip()
+        name = re.sub(r'^[A-Z]{3,5}\s+', '', name).strip()
+        names.append(name)
+    return names
 
 
 def load_prompt():
@@ -45,25 +125,42 @@ def load_prompt():
     return path.read_text()
 
 
-def extract_game_id(markdown_text):
+def extract_game_id(markdown_text, raw_filename=None):
     """Parse the Game_ID from the markdown output header.
 
-    Constructs YYYY-MM-DD_AWAY_at_HOME from the header fields.
+    Constructs YYYY-MM-DD_AWAY_at_HOME from the header fields. When a
+    `raw_filename` is provided, its date acts as a sanity-check anchor: any
+    parsed date more than MAX_DATE_DRIFT_DAYS away from it is rejected
+    (this catches the failure mode where the parser locks onto a stray
+    4-digit substring like "(2020-2025)" and emits a Game_ID years off).
+    The raw filename's date is also used as a final fallback when the
+    markdown contains no parseable date.
     """
     header = markdown_text[:3000]
+    raw_team, raw_date = (None, None)
+    if raw_filename:
+        raw_team, raw_date = _parse_raw_filename(raw_filename)
+
+    def _date_ok(candidate):
+        """Reject candidate dates that drift too far from the raw filename's date."""
+        if not candidate or not raw_date:
+            return True  # no anchor → accept
+        diff = _date_diff_days(candidate, raw_date)
+        return diff is not None and diff <= MAX_DATE_DRIFT_DAYS
 
     # 1. Try direct Game_ID pattern (e.g. in a filename or explicit mention)
     m = re.search(r'(\d{4}-\d{2}-\d{2})_([A-Z]{3,5})_at_([A-Z]{3,5})', header)
-    if m:
+    if m and _date_ok(m.group(1)):
         return f"{m.group(1)}_{m.group(2)}_at_{m.group(3)}"
 
     # 2. Extract date
     date_str = None
 
     # YYYY-MM-DD format
-    m = re.search(r'(\d{4}-\d{2}-\d{2})', header)
-    if m:
-        date_str = m.group(1)
+    for cand in re.findall(r'(\d{4}-\d{2}-\d{2})', header):
+        if _date_ok(cand):
+            date_str = cand
+            break
 
     if not date_str:
         # "Mon Apr 8" or "Wed Apr 8, 4:15 PM" — day-of-week + abbreviated month + day
@@ -73,10 +170,18 @@ def extract_game_id(markdown_text):
         if m:
             month = MONTHS[m.group(1)]
             day = int(m.group(2))
-            # Look for a year nearby, otherwise assume current year
+            # Prefer the raw filename's year over the hardcoded fallback so
+            # the pipeline doesn't silently rot when a new season starts.
             yr = re.search(r'(\d{4})', header[m.end():m.end()+20])
-            year = int(yr.group(1)) if yr else 2026
-            date_str = f"{year}-{month:02d}-{day:02d}"
+            if yr:
+                year = int(yr.group(1))
+            elif raw_date:
+                year = int(raw_date.split("-")[0])
+            else:
+                year = 2026
+            cand = f"{year}-{month:02d}-{day:02d}"
+            if _date_ok(cand):
+                date_str = cand
 
     if not date_str:
         # "April 8, 2026" or "March 10, 2026"
@@ -87,8 +192,19 @@ def extract_game_id(markdown_text):
         if m:
             month = MONTHS_FULL[m.group(1)]
             day = int(m.group(2))
-            year = int(m.group(3)) if m.group(3) else 2026
-            date_str = f"{year}-{month:02d}-{day:02d}"
+            if m.group(3):
+                year = int(m.group(3))
+            elif raw_date:
+                year = int(raw_date.split("-")[0])
+            else:
+                year = 2026
+            cand = f"{year}-{month:02d}-{day:02d}"
+            if _date_ok(cand):
+                date_str = cand
+
+    # Final date fallback: trust the raw filename when the markdown is silent.
+    if not date_str and raw_date:
+        date_str = raw_date
 
     if not date_str:
         return None
@@ -119,6 +235,26 @@ def extract_game_id(markdown_text):
     m = re.search(r'([A-Z]{3,5})\s+(?:at|@|vs\.?)\s+([A-Z]{3,5})', header)
     if m:
         return f"{date_str}_{m.group(1)}_at_{m.group(2)}"
+
+    # Last resort: resolve full team names from the "Teams:" line via the
+    # config registry, slotting the raw filename's focal team into whichever
+    # side (away/home) it matches. This rescues games where the model emitted
+    # only full names (e.g. Mt. Hebron games where "MTHB" never appears as a
+    # bare code in the header).
+    team_names = _extract_teams_line(header)
+    if len(team_names) == 2:
+        registry = _load_team_registry()
+        away_code = _resolve_name_to_code(team_names[0], registry)
+        home_code = _resolve_name_to_code(team_names[1], registry)
+        if away_code and home_code:
+            return f"{date_str}_{away_code}_at_{home_code}"
+        if raw_team and (away_code or home_code):
+            # One side resolved, the other is unknown — slot raw_team into
+            # whichever side matches it (it might be the unresolved side).
+            if away_code and not home_code:
+                return f"{date_str}_{away_code}_at_{raw_team}" if away_code != raw_team else None
+            if home_code and not away_code:
+                return f"{date_str}_{raw_team}_at_{home_code}" if home_code != raw_team else None
 
     return None
 
@@ -222,7 +358,7 @@ def main():
     markdown = transcribe(raw_text, system_prompt)
 
     # Parse Game_ID from the output
-    game_id = extract_game_id(markdown)
+    game_id = extract_game_id(markdown, raw_filename=raw_path.name)
     if not game_id:
         # Save with raw filename as fallback so pipeline can continue
         raw_stem = Path(sys.argv[1]).stem

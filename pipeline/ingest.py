@@ -42,6 +42,7 @@ PIPELINE_DIR = REPO_ROOT / "pipeline"
 DATA_DIR = REPO_ROOT / "data"
 EXCEL_FILE = DATA_DIR / "RiverHill_Repository_Master.xlsx"
 CONFIG_FILE = PIPELINE_DIR / "config.json"
+INGESTED_MARKER = PIPELINE_DIR / "raw" / "_ingested.txt"
 
 MODEL = "claude-sonnet-4-20250514"
 MAX_TOKENS = 16000
@@ -693,6 +694,15 @@ def main():
     print("\nAll gates passed — appending to Excel...")
     counts = append_to_excel(data)
     print(f"  Rows added — Game_Log: {counts['Game_Log']} | Batting: {counts['Batting']} | Pitching: {counts['Pitching']} | Fielding: {counts['Fielding']}")
+
+    # Record success so the daily.yml commit step can count actual ingests
+    # (not just staged .md files). One Game_ID per line; appended.
+    try:
+        INGESTED_MARKER.parent.mkdir(parents=True, exist_ok=True)
+        with INGESTED_MARKER.open("a") as f:
+            f.write(f"{game_md_path.stem}\n")
+    except OSError as e:
+        print(f"WARNING: could not write ingest marker {INGESTED_MARKER}: {e}")
 
     # Run export.py
     print("\nRunning export.py to regenerate repository.json...")

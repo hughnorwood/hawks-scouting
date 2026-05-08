@@ -61,6 +61,9 @@ jobs:
         run: |
           mkdir -p pipeline/raw
           rm -f pipeline/raw/*.txt
+          # Reset the per-run ingest success marker so the commit step counts
+          # only this run's successful Excel writes.
+          rm -f pipeline/raw/_ingested.txt
 
       # ── Scrape ──
       - name: Scrape new games from GameChanger
@@ -127,19 +130,38 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          # Count games that actually wrote rows to Excel during this run.
+          # ingest.py appends a Game_ID line on every successful append; the
+          # file is wiped at the start of each run by the "Clean stale raw
+          # files" step. This is the source of truth — staged .md files in
+          # games/ may include UNKNOWN_*.md and PC-failed transcriptions that
+          # never reached the repository.
+          if [ -f pipeline/raw/_ingested.txt ]; then
+            INGESTED_COUNT=$(grep -c . pipeline/raw/_ingested.txt || echo 0)
+          else
+            INGESTED_COUNT=0
+          fi
+
+          if [ "$INGESTED_COUNT" -eq 0 ]; then
+            echo "No games successfully ingested — skipping commit."
+            echo "(Any new .md files in games/ are transcription/ingest"
+            echo " failures and will be picked up on a future run after"
+            echo " manual repair.)"
+            exit 0
+          fi
+
           # Stage new/changed pipeline output files
           # public/games/ is the deployed mirror consumed by the app — must stay in sync with games/
           git add -A games/ data/ public/repository.json public/games/
 
           if git diff --cached --quiet; then
-            echo "No new data to commit — exiting cleanly."
+            echo "Ingest marker reports ${INGESTED_COUNT} game(s) but no staged changes — skipping commit."
             exit 0
           fi
 
-          NEW_GAMES_COUNT=$(git diff --cached --name-only -- games/ | wc -l | tr -d ' ')
-          git commit -m "pipeline: add ${NEW_GAMES_COUNT} new game(s)
+          git commit -m "pipeline: add ${INGESTED_COUNT} new game(s)
 
           Automated daily pipeline run."
 
           git push
-          echo "Pushed ${NEW_GAMES_COUNT} new game(s) to repository."
+          echo "Pushed ${INGESTED_COUNT} new game(s) to repository."
