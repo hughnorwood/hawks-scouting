@@ -28,7 +28,7 @@ The pipeline was previously a manual HITL workflow: copy-paste from GC → Claud
 │   └── main.jsx                       ← React mount: imports App from ../app/hawks.jsx + mounts <Analytics />
 ├── .github/
 │   └── workflows/
-│       └── daily.yml                  ← cron job: runs pipeline, commits, pushes
+│       └── daily.yml                  ← workflow_dispatch only (post-season); runs pipeline, commits, pushes
 ├── api/
 │   ├── chat.js                        ← Vercel serverless proxy for Ask tab (Anthropic API)
 │   └── ktg.js                         ← legacy Keys-to-the-Game proxy (unused by v5 app)
@@ -75,12 +75,12 @@ Vercel detects `package.json` and runs `npm install` + `vite build` on every dep
 
 ### Daily GitHub Actions Run
 
-Runs nightly at 9:30 PM ET on a **self-hosted macOS runner** (the owner's Mac). The runner agent is launchd-managed; if the Mac is asleep at cron time the job queues and fires when it wakes. Manual triggers via `workflow_dispatch` work the same way.
+Runs on **manual `workflow_dispatch` only** as of 2026-05-05 (nightly cron disabled for the playoff phase; can be re-enabled by restoring the `schedule:` block in `daily.yml`). Executes on a **self-hosted macOS runner** (the owner's Mac). The runner agent is launchd-managed; if the Mac is asleep when a dispatch fires the job queues and runs when it wakes.
 
 1. **scrape.py** — loads GC session from Actions cache (key `gc-session-v2`), verifies auth via `is_logged_in()` paywall-marker probe, checks each focal team's schedule page, identifies games not already in `games/`, downloads raw play-by-play text to `pipeline/raw/`. Hard-fails on paywall detection (does NOT write partials).
-2. **transcribe.py** — calls Claude API with `prompts/transcribe.md`, writes `games/YYYY-MM-DD_AWAY_at_HOME.md`
-3. **ingest.py** — detects newly created (untracked) `.md` files via `git ls-files --others --exclude-standard -- games/*.md`, calls Claude API with `prompts/ingest.md`, writes Excel if all gates pass, calls `export.py`
-4. **Commit + push** — stages `games/`, `data/`, `public/repository.json`, `public/games/`; commits only if new files exist; push → Vercel auto-deploys
+2. **transcribe.py** — calls Claude API with `prompts/transcribe.md`, writes `games/YYYY-MM-DD_AWAY_at_HOME.md`. Game_ID parser uses the raw filename's date as an anchor (rejects parses >3 days off; falls back to raw filename's date when markdown has none) and falls back to registry-based name resolution from the `Teams:` line when no team codes are present.
+3. **ingest.py** — detects newly created (untracked) `.md` files via `git ls-files --others --exclude-standard -- games/*.md`, calls Claude API with `prompts/ingest.md`, writes Excel if all gates pass, **appends the Game_ID to `pipeline/raw/_ingested.txt`** as a success marker, calls `export.py`.
+4. **Commit + push** — counts lines in `pipeline/raw/_ingested.txt` (set up empty at the start of every run). If zero, **skips the commit entirely** with a "No games successfully ingested" log line — so failed transcription/ingest runs no longer push misleading "added N new game(s)" commits. Otherwise stages `games/`, `data/`, `public/repository.json`, `public/games/` and commits with `pipeline: add N new game(s)` where N is the marker count; push → Vercel auto-deploys.
 5. **Any per-game failure** → caught by `|| continue`; logged in Actions; pipeline continues to next game. **Auth failure short-circuits the whole run** — no `|| continue` rescue.
 
 ### Pipeline Resilience — Failure Modes
@@ -89,10 +89,13 @@ Runs nightly at 9:30 PM ET on a **self-hosted macOS runner** (the owner's Mac). 
 |---|---|---|
 | GC session expired / paywall detected | 1 | scrape.py exits with re-seed runbook; nothing written; transcribe + ingest steps don't run |
 | Transcription parser can't extract Game_ID | 0 | Saved as `UNKNOWN_{raw_filename}.md`, never ingested |
+| Transcription Game_ID date >3 days off raw filename's date | 0 | Treated as parse failure → `UNKNOWN_{raw_filename}.md`. Catches the `2026-05-07 → 2020/2024` failure mode |
 | Ingest gate failure (G1–G6) | 1 | Caught by `\|\| continue`, nothing written, logged |
+| Ingest cross-check failure (PC1–PC5) | 1 | Caught, nothing written, logged. Re-run with `--skip-crosschecks` for documented Section-5 waivers |
 | Ingest focal team detection failure | 1 | Caught, logged, continues |
 | Ingest duplicate guard fires | 0 | Logged, continues |
 | API error | 1 | Caught, logged, continues |
+| All transcribe + ingest steps fail (zero successful ingests) | 0 | Commit step skips entirely; no commit, no push, no app data churn |
 
 ---
 
@@ -138,8 +141,8 @@ The `Derivation_Rules` sheet must never be modified. All other sheets beyond the
 }
 ```
 
-- `focal_teams` — 15 tracked teams
-- `known_opponents` — 95 non-focal teams
+- `focal_teams` — 11 tracked teams (scoped down for the playoff phase, May 2026)
+- `known_opponents` — 99 non-focal teams (CNTN, NHRF, WLDL, HMMN moved here from `focal_teams`)
 - Total: 110 entries
 
 **Resolution flow** (in `ingest.py`):
@@ -149,12 +152,11 @@ The `Derivation_Rules` sheet must never be modified. All other sheets beyond the
 
 **Safety net patterns:** Some entries have short codes as patterns (`"knts"` under KTIS, `"mt.h"` under MTHB, etc.). These are intentional — do not remove them.
 
-### Focal Teams
+### Focal Teams (playoff scope, 11 teams)
 
 | Human Name | GC Team ID | App Code |
 |---|---|---|
 | River Hill | `L3KUEclXyQ8R` | `RVRH` |
-| Centennial | `0leb6orf3scs` | `CNTN` |
 | Glenelg | `sTcS0b1BQ27u` | `GLNL` |
 | Huntingtown | `gB96NCUVyaZq` | `HNTN` |
 | Parkside | `zspMoWf0CixS` | `PRKS` |
@@ -162,14 +164,11 @@ The `Derivation_Rules` sheet must never be modified. All other sheets beyond the
 | Fallston | `g6B8BXCbZuMF` | `FLLS` |
 | Middletown | `AadMAYNPwJg8` | `MDLT` |
 | Hereford | `f4s8oFycsPlF` | `HRFD` |
-| North Harford | `lwW88NNGvnAE` | `NHRF` |
 | Century | `67lmIIVaxWMx` | `CNTY` |
 | Kent Island | `HosNhxk1NroJ` | `KTIS` |
 | Long Reach | `6Q2VVSbv2fQQ` | `LNRC` |
-| Wilde Lake | `HZBbh1Lf6XtW` | `WLDL` |
-| Hammond | `vF8BfQGb71MV` | `HMMN` |
 
-RVRH is the primary focal team. WLDL and HMMN promoted April 21, 2026.
+RVRH is the primary focal team. **Pipeline scope was narrowed from 15 to 11 teams on 2026-05-08** for the playoff phase — CNTN, NHRF, WLDL, HMMN moved from `focal_teams` to `known_opponents`. Their existing data stays in the repo and the app's hardcoded `FOCAL_TEAMS` array still lists all 15 (so historical focal-card UI is preserved); only the daily scrape iterates the 11 above. To restore a dropped team to scrape coverage, move its entry back into `config.json` `focal_teams` (keep `gc_team_id`, add `primary` if applicable).
 
 ### Adding a new team
 
@@ -273,7 +272,7 @@ python pipeline/reingest_batch.py --limit N --retries 3
 **Design principle:** "The app observes. The coach concludes."
 
 ### Key Constants
-- `FOCAL_TEAMS` — hardcoded array of 15 team codes
+- `FOCAL_TEAMS` — hardcoded array of 15 team codes (intentionally still 15 even though pipeline scope is 11; preserves the focal-card UI for historical CNTN/NHRF/WLDL/HMMN data)
 - `TEAM_NAMES` — hardcoded map of 15 focal codes to display names; primary lookup, always correct even before data loads
 - `DESKTOP_BP = 1280`
 
@@ -369,7 +368,7 @@ The login flow needs a verification code from email. CI can't do this alone.
 
 ## GitHub Actions Workflow (daily.yml)
 
-- **Cron:** 9:30 PM ET (`30 1 * * *` UTC) + `workflow_dispatch`
+- **Trigger:** `workflow_dispatch` only (cron disabled 2026-05-05 for playoff phase; previously `30 1 * * *` UTC = 9:30 PM ET)
 - **Runner:** `[self-hosted, macOS, hawks-scout]` — owner's Mac, residential IP. **Required**: GC paywalls Azure datacenter IPs (verified 2026-04-25); cannot run on `ubuntu-latest`.
 - **Timeout:** 90 min (covers worst-case 30-game backfill; steady-state runs finish in <10 min)
 - **Concurrency:** group `daily-pipeline`, `cancel-in-progress: false` so a backlog from extended Mac downtime doesn't pile up but in-progress work isn't killed
@@ -408,10 +407,12 @@ The login flow needs a verification code from email. CI can't do this alone.
 - **Gate failures are hard stops.** `|| continue` skips to the next game — does not override.
 - **Prompts are source of truth.** Never inline their logic into Python scripts.
 - **Batter misattribution** is the primary transcription failure mode. v4.1 handles it. If suspected, check `pipeline/raw/` vs the markdown play log.
+- **Wrong-year Game_IDs** — `transcribe.extract_game_id()` previously locked onto stray 4-digit substrings ("2020-2025", "Last meeting: 2020-…") and silently emitted years off by 4–6. The parser now anchors to the raw filename's date and rejects parses >`MAX_DATE_DRIFT_DAYS` (3) off; any drift saves to `UNKNOWN_*.md` for triage. Don't loosen the threshold.
+- **Commit gate is marker-driven, not file-driven.** `daily.yml` reads `pipeline/raw/_ingested.txt` (one line per successful Excel write). A commit happens only if that file is non-empty. Don't go back to counting `git diff --cached --name-only -- games/` — that counted UNKNOWN_*.md and PC-failed transcriptions and produced misleading "added N new game(s)" subjects.
 - **Team code resolution is name-based and per-game.** Never add global code-to-code aliases — they break on ambiguous codes (NRTH = 5 different teams).
 - **Unknown teams produce `[REGISTRY] WARNING`.** Add to `config.json` with all three fields (`code`, `display_name`, `name_patterns`), retry, then run `export.py`.
 - **Excel filename is `RiverHill_Repository_Master.xlsx`.**
-- **FOCAL_TEAMS appears in 5 places in hawks.jsx:** (1) `TEAM_NAMES` map, (2) `LeagueScatterPlot`, (3) `StandingsTable`, (4) `LeagueHeatMap`, (5) `classifyTeamsForTab`. Update all five when adding a focal team.
+- **FOCAL_TEAMS appears in 5 places in hawks.jsx:** (1) `TEAM_NAMES` map, (2) `LeagueScatterPlot`, (3) `StandingsTable`, (4) `LeagueHeatMap`, (5) `classifyTeamsForTab`. Update all five when adding a focal team. Note these still list **all 15** teams (RVRH/CNTN/GLNL/HNTN/PRKS/STHR/FLLS/MDLT/HRFD/NHRF/CNTY/KTIS/LNRC/WLDL/HMMN), even though the pipeline now scrapes only 11. Keep them in sync if you add a new team to the pipeline.
 - **Safety net patterns in config.json are intentional.** Do not remove short-code patterns like `"knts"`, `"mt.h"`, `"cml"`.
 - **Opponent field is always canonical codes.** `normalize_opponents.py` exists if issues recur.
 - **`teamName(id, teams)` requires both arguments.** Omitting `data.teams` means non-focal opponents show as codes.
@@ -422,7 +423,7 @@ The login flow needs a verification code from email. CI can't do this alone.
 - **`<Analytics />` mounted once in `src/main.jsx`.** Do not duplicate in `app/hawks.jsx`.
 - **Known data-quality items:** (1) `2020-04-07_STHR_at_GLNB` misdated duplicate; (2) `2026-04-04_CNTY_at_NRTE` team order reversed; (3) `STMC` alias missing from config.json.
 - **`actions/cache/save@v4` is immutable.** If a cache with the target key already exists, save logs a warning and skips — does NOT overwrite. To replace a cached value, **bump the key**. Current GC session key is `gc-session-v2`; bump to `v3` when re-seeding if the same key has been used before.
-- **Daily cron requires the Mac to be reachable.** If asleep at 9:30 PM ET, the run queues. If powered off / network-disconnected, the run waits for the runner to reconnect. Long absences will accumulate one queued run; concurrency group keeps them serialized. Manual `workflow_dispatch` from GH UI works any time the runner is online.
+- **`workflow_dispatch` requires the Mac to be reachable.** If asleep when dispatched, the run queues. If powered off / network-disconnected, the run waits for the runner to reconnect. Concurrency group keeps multiple queued runs serialized. (Cron is disabled for the playoff phase, so this is now manual-only — a stale queue is unlikely.)
 - **`actions/setup-python@v5` does not work on self-hosted macOS runners** — see `daily.yml` comment. Use `python3` directly. Don't add the action back without testing.
 - **Login flow is HITL** — `scrape.py login()` waits up to 120s for `pipeline/raw/code.txt` containing the GC email verification code. Cannot be automated end-to-end in CI; see "Re-seeding the session" above.
 - **Post-login verification probes `/home` for absence of UNAUTH_MARKERS.** Earlier URL-poll-based check (`"/login" not in page.url`) was unreliable — page would redirect to `/teams` after polling expired and the script would falsely declare login failed even though it succeeded. Do not revert.
@@ -542,21 +543,23 @@ for gid in game_ids:
 
 ---
 
-## Current State (late April 2026)
+## Current State (May 2026, playoff phase)
 
 ### Pipeline
-- ✅ Full pipeline live on self-hosted macOS runner (daily 9:30 PM ET + manual dispatch); migrated April 27 from `ubuntu-latest`
+- ✅ Full pipeline live on self-hosted macOS runner (daily cron disabled post-season; `workflow_dispatch` only); migrated April 27 from `ubuntu-latest`
 - ✅ GC paywall guard + DOM-marker auth detection in `scrape.py` (April 27) — silent session expiry can no longer write partial data
 - ✅ Login post-submit verification rewritten to check `/home` for unauth markers (was URL-poll-based, unreliable; April 27)
 - ✅ GC session cache key bumped to `v2` (April 27) — `actions/cache/save@v4` is immutable; key bump is the only way to refresh
-- ✅ Backfill complete — 15 focal teams, 237 games, 7,400+ rows (April 24); + 7 more games landed April 27 after self-hosted runner went live
-- ✅ WLDL + HMMN promoted to focal teams (April 21); backfill complete
+- ✅ Focal-team scope narrowed from 15 to 11 for the playoff phase (May 8) — CNTN/NHRF/WLDL/HMMN moved to `known_opponents`
+- ✅ `transcribe.py` Game_ID parser hardened (May 8) — date-anchor sanity check (rejects parses >3 days off the raw filename's date), raw-filename date fallback, registry-based name resolution from the `Teams:` line. Fixes the 2026-05-07 → 2020/2024 wrong-year mode and rescues Mt. Hebron-style headers without team codes.
+- ✅ `daily.yml` commit gate now driven by `pipeline/raw/_ingested.txt` (May 8) — commits skipped entirely on zero successful ingests; no more misleading "added N new game(s)" subjects
+- ✅ Backfill complete — 237 games + 7 (April 27) + 3 (May 8: 2026-05-05 MDLT/CLRS, 2026-05-07 HMMN/STHR, 2026-05-07 WLDL/RVRH)
 - ✅ `public/games/` sync gap fixed (April 24)
-- ✅ All gate-failed focal games ingested (April 24)
-- ✅ Name-based team registry — 15 focal + 95 known opponents, all with `display_name`
+- ✅ Name-based team registry — 11 focal + 99 known opponents, all with `display_name`; 110 entries total
 - ✅ Opponent field canonicalized (April 24) — 554 cells rewritten, 22 file renames
 - ✅ Validator (PC1-PC5), triage, batch re-ingest tooling all live
 - 🚧 Triage worklist — buckets E/G/H have acceptable cross-check gaps
+- 🚧 11 `UNKNOWN_*.md` Mt. Hebron files in `games/` — left for a later pass; the new transcribe fallbacks should rescue similar files in future runs
 - ⚠️ Known data items: `2020-04-07_STHR_at_GLNB` misdated; `2026-04-04_CNTY_at_NRTE` reversed; `STMC` alias missing
 
 ### App (v5 — current)
