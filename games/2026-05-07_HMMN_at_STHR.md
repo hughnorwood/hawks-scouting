@@ -3,7 +3,7 @@
 ## Game Header
 
 **Teams:** Hammond Varsity Bears (away) / Southern Varsity Bulldogs (home)  
-**Date:** Thu May 7, 2024  
+**Date:** Thu May 7, 2026  
 **Time:** 5:30 PM - 8:30 PM ET  
 **Game Type:** Not labeled  
 **Final Score:** Hammond 2, Southern 12  

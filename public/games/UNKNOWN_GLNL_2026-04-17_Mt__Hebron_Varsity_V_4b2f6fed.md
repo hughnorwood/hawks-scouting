@@ -6,7 +6,7 @@
 **Date:** Fri Apr 17, 4:15 PM - 5:15 PM ET  
 **Game Type:** Not labeled  
 **Final Score:** Glenelg 11, Mt. Hebron 1  
-**Innings Played:** 6 (incomplete)  
+**Innings Played:** 6 (complete game, 10-run rule)  
 **Source:** GameChanger Play Log  
 
 ---
@@ -15,14 +15,10 @@
 
 **Line Score:**
 ```
-        1  2  3  4  5  6
-GLNL    0  1  1  0  6  3
-MT.H    1  0  0  0  0  0
+Team            1  2  3  4  5  6    R  H  E
+Glenelg         0  1  1  0  6  3   11 10  1
+Mt. Hebron      1  0  0  0  0  0    1  5  2
 ```
-
-**Team Totals:**
-- Glenelg Varsity Gladiators: R=11, H=10, E=1
-- Mt. Hebron Varsity Vikings: R=1, H=5, E=2
 
 ---
 
@@ -31,7 +27,7 @@ MT.H    1  0  0  0  0  0
 | # | Inning | Half | Batter | Outcome | Description | Outs (End of Play) | Runs Scored | Notes |
 |---|--------|------|--------|---------|-------------|--------------------|-------------|-------|
 | 1 | 1 | Top | Ty Blayman | Single | singles on a fly ball to center fielder Tyler Venti | | | Lineup changed: Yash Patel in at pitcher |
-| 2 | 1 | Top | Mason Melhuish | Strikeout | strikes out swinging, Yash Patel pitching | 1 | | [Ty Blayman steals 2nd] |
+| 2 | 1 | Top | Mason Melhuish | Strikeout | strikes out swinging, Yash Patel pitching | 1 | | Ty Blayman steals 2nd |
 | 3 | 1 | Top | Caleb Lease | Strikeout | strikes out swinging, Yash Patel pitching | 2 | | |
 | 4 | 1 | Top | Ben Conlon | Dropped 3rd Strike | out at first on dropped 3rd strike | 3 | | |
 | 5 | 1 | Bottom | Colby Keeton | Ground Out | grounds out, second baseman Austin Nazelrod to first baseman Ben Conlon | 1 | | Lineup changed: Miles Kirk in at pitcher |
@@ -49,10 +45,10 @@ MT.H    1  0  0  0  0  0
 | 17 | 2 | Bottom | JJ Jaecksh | Error | hits a ground ball and reaches on an error by second baseman Austin Nazelrod | | | |
 | 18 | 2 | Bottom | Hokyoung Jang | Ground Out | grounds out to first baseman Ben Conlon, JJ Jaecksh advances to 2nd | 1 | | |
 | 19 | 2 | Bottom | Colin Evans | Strikeout | strikes out swinging, Miles Kirk pitching | 2 | | |
-| 20 | 2 | Bottom | Colby Keeton | Strikeout | strikes out swinging, Miles Kirk pitching | 3 | | [JJ Jaecksh advances to 3rd on passed ball] |
+| 20 | 2 | Bottom | Colby Keeton | Strikeout | strikes out swinging, Miles Kirk pitching | 3 | | JJ Jaecksh advances to 3rd on passed ball |
 | 21 | 3 | Top | Mason Melhuish | Walk | walks, Yash Patel pitching | | | |
-| 22 | 3 | Top | Caleb Lease | Strikeout | strikes out swinging, Yash Patel pitching | 1 | | [Mason Melhuish steals 2nd] |
-| 23 | 3 | Top | Ben Conlon | Walk | walks, Yash Patel pitching | | | [Mason Melhuish steals 2nd] |
+| 22 | 3 | Top | Caleb Lease | Strikeout | strikes out swinging, Yash Patel pitching | 1 | | Mason Melhuish steals 2nd |
+| 23 | 3 | Top | Ben Conlon | Walk | walks, Yash Patel pitching | | | |
 | 24 | 3 | Top | Carson Brown | Pop Out | pops out to pitcher Yash Patel | 2 | | |
 | 25 | 3 | Top | Aidan Baker | Single | singles on a line drive to center fielder Tyler Venti, Mason Melhuish scores on the throw, Ben Conlon advances to 2nd | | 1 | GLNL 2 - MT.H 1 |
 | 26 | 3 | Top | Austin Nazelrod | Fly Out | flies out to center fielder Tyler Venti | 3 | | |
@@ -68,19 +64,19 @@ MT.H    1  0  0  0  0  0
 | 36 | 4 | Bottom | JJ Jaecksh | Single | singles on a line drive to left fielder Carson Brown | | | |
 | 37 | 4 | Bottom | Hokyoung Jang | Ground Out | bunts out to catcher Gavin Melhuish | 1 | | |
 | 38 | 4 | Bottom | Colin Evans | Strikeout | strikes out looking, Miles Kirk pitching | 2 | | |
-| 39 | 4 | Bottom | Colby Keeton | Single | singles on a ground ball to center fielder Ty Blayman, JJ Jaecksh advances to 3rd | | | [JJ Jaecksh advances to 2nd on wild pitch] |
-| 40 | 4 | Bottom | JJ Jaecksh | Runner Out | out at 3rd, pitcher Miles Kirk | 3 | | Half-inning ended by out on the base paths |
+| 39 | 4 | Bottom | Colby Keeton | Single | singles on a ground ball to center fielder Ty Blayman, JJ Jaecksh advances to 3rd | | | JJ Jaecksh advances to 2nd on wild pitch |
+| 40 | 4 | Bottom | Runner Out | Runner Out | JJ Jaecksh out at 3rd, pitcher Miles Kirk | 3 | | Half-inning ended by out on the base paths |
 | 41 | 5 | Top | Caleb Lease | Walk | walks, Yash Patel pitching | | | |
 | 42 | 5 | Top | Ben Conlon | Walk | walks, Yash Patel pitching, Caleb Lease advances to 2nd | | | |
 | 43 | 5 | Top | Carson Brown | Single | singles on a bunt to third baseman Jaden Muth, Caleb Lease advances to 3rd, Ben Conlon advances to 2nd | | | |
-| 44 | 5 | Top | Aidan Baker | Walk | walks, Colin Friedman pitching | | | [Caleb Lease scores on steal of home, Carson Brown steals 2nd] GLNL 3 - MT.H 1; Lineup changed: Pinch runner Elijah Laprise in for first baseman Ben Conlon |
+| 44 | 5 | Top | Aidan Baker | Walk | walks, Colin Friedman pitching | | 1 | GLNL 3 - MT.H 1; Lineup changed: Pinch runner Elijah Laprise in for first baseman Ben Conlon; Caleb Lease scores on steal of home, Elijah Laprise steals 3rd, Carson Brown steals 2nd |
 | 45 | 5 | Top | Austin Nazelrod | Strikeout | strikes out looking, Colin Friedman pitching | 1 | | |
 | 46 | 5 | Top | Gavin Melhuish | Fielder's Choice | grounds into fielder's choice, pitcher Colin Friedman to catcher Jake Ferguson, Elijah Laprise out advancing to home, Carson Brown advances to 3rd, Aidan Baker advances to 2nd | 2 | | |
 | 47 | 5 | Top | Grant Knauss | Hit By Pitch | is hit by pitch, Colin Friedman pitching, Carson Brown scores, Aidan Baker advances to 3rd | | 1 | GLNL 4 - MT.H 1; Courtesy runner Peyton Moreau in for Gavin Melhuish |
-| 48 | 5 | Top | Ty Blayman | Single | singles on a line drive to center fielder Tyler Venti, Grant Knauss scores | | 1 | GLNL 7 - MT.H 1; [Aidan Baker scores on wild pitch, Peyton Moreau advances to 3rd, Grant Knauss advances to 2nd; Balk by pitcher Colin Friedman, Peyton Moreau scores, Grant Knauss advances to 3rd] |
+| 48 | 5 | Top | Ty Blayman | Single | singles on a line drive to center fielder Tyler Venti, Grant Knauss scores | | 3 | GLNL 7 - MT.H 1; Aidan Baker scores on wild pitch, Peyton Moreau advances to 3rd on the same pitch, Grant Knauss advances to 2nd on the same pitch, Balk by pitcher Colin Friedman, Peyton Moreau scores, Grant Knauss advances to 3rd |
 | 49 | 5 | Top | Mason Melhuish | Error | hits a ground ball and reaches on an error by third baseman Yash Patel, Ty Blayman advances to 2nd | | | |
-| 50 | 5 | Top | Caleb Lease | Walk | walks, Colin Friedman pitching | | | [Ty Blayman steals 3rd, Mason Melhuish advances to 2nd on defensive indifference] |
-| 51 | 5 | Top | Ben Conlon | Fly Out | flies out to right fielder Logan Perone | 3 | 1 | [Ty Blayman scores on steal of home, Mason Melhuish steals 3rd, Caleb Lease steals 2nd] GLNL 8 - MT.H 1; Lineup changed: Ben Conlon in for batter Elijah Laprise |
+| 50 | 5 | Top | Caleb Lease | Walk | walks, Colin Friedman pitching | | | Ty Blayman steals 3rd, Mason Melhuish advances to 2nd on defensive indifference |
+| 51 | 5 | Top | Ben Conlon | Fly Out | flies out to right fielder Logan Perone | 3 | 1 | GLNL 8 - MT.H 1; Lineup changed: Ben Conlon in for batter Elijah Laprise; Ty Blayman scores on steal of home, Mason Melhuish steals 3rd, Caleb Lease steals 2nd |
 | 52 | 5 | Bottom | Tyler Venti | Fly Out | flies out to shortstop Aidan Baker | 1 | | |
 | 53 | 5 | Bottom | Jaden Muth | Strikeout | is out on foul tip, Miles Kirk pitching | 2 | | |
 | 54 | 5 | Bottom | Colin Friedman | Ground Out | grounds out, shortstop Aidan Baker to first baseman Ben Conlon | 3 | | |
@@ -88,7 +84,7 @@ MT.H    1  0  0  0  0  0
 | 56 | 6 | Top | Aidan Baker | Single | singles on a fly ball to center fielder Tyler Venti, Carson Brown scores | | 1 | GLNL 9 - MT.H 1 |
 | 57 | 6 | Top | Austin Nazelrod | Ground Out | grounds out, second baseman Maro Kim to first baseman Colin Friedman, Aidan Baker advances to 2nd | 1 | | |
 | 58 | 6 | Top | Gavin Melhuish | Walk | walks, Aidan Kennard pitching, Aidan Baker remains at 2nd | | | |
-| 59 | 6 | Top | Grant Knauss | Single | singles on a ground ball to left fielder Jaden Muth, Peyton Moreau scores, Aidan Baker scores | | 2 | GLNL 11 - MT.H 1; [Aidan Baker steals 3rd, Courtesy runner Peyton Moreau in for Gavin Melhuish, Peyton Moreau advances to 2nd on defensive indifference] |
+| 59 | 6 | Top | Grant Knauss | Single | singles on a ground ball to left fielder Jaden Muth, Peyton Moreau scores, Aidan Baker scores | | 2 | GLNL 11 - MT.H 1; Aidan Baker steals 3rd, Courtesy runner Peyton Moreau in for Gavin Melhuish, Peyton Moreau advances to 2nd on defensive indifference |
 | 60 | 6 | Top | Ty Blayman | Fly Out | flies out to right fielder Logan Perone | 2 | | |
 | 61 | 6 | Top | Mason Melhuish | Single | singles on a ground ball to left fielder Jaden Muth, Grant Knauss advances to 2nd | | | |
 | 62 | 6 | Top | Caleb Lease | Fly Out | flies out to right fielder Logan Perone | 3 | | Lineup changed: S Lingam in at pitcher |
@@ -103,7 +99,7 @@ MT.H    1  0  0  0  0  0
 | # | Inning/Half | Batter | Pitch Sequence |
 |---|-------------|--------|----------------|
 | 1 | 1/Top | Ty Blayman | Strike 1 looking, Strike 2 looking, Ball 1, In play |
-| 2 | 1/Top | Mason Melhuish | Strike 1 looking, [Pickoff attempt at 1st], Ball 1, [Ty Blayman steals 2nd], Strike 2 swinging, Ball 2, Ball 3, Strike 3 swinging |
+| 2 | 1/Top | Mason Melhuish | Strike 1 looking, [Ty Blayman steals 2nd], Ball 1, Strike 2 swinging, Ball 2, Ball 3, Strike 3 swinging |
 | 3 | 1/Top | Caleb Lease | Foul, Ball 1, Ball 2, Strike 2 swinging, Strike 3 swinging |
 | 4 | 1/Top | Ben Conlon | Ball 1, Ball 2, Strike 1 looking, Strike 2 looking, Strike 3 swinging |
 | 5 | 1/Bottom | Colby Keeton | Strike 1 looking, In play |
@@ -141,11 +137,11 @@ MT.H    1  0  0  0  0  0
 | 37 | 4/Bottom | Hokyoung Jang | In play |
 | 38 | 4/Bottom | Colin Evans | Foul, Foul, Foul, Ball 1, Strike 3 looking |
 | 39 | 4/Bottom | Colby Keeton | Strike 1 looking, Foul, Ball 1, Ball 2, [JJ Jaecksh advances to 2nd on wild pitch], In play |
-| 40 | 4/Bottom | JJ Jaecksh | [No pitch sequence recorded] |
+| 40 | 4/Bottom | Runner Out | [No pitch sequence recorded] |
 | 41 | 5/Top | Caleb Lease | Ball 1, Ball 2, Foul, Ball 3, Ball 4 |
 | 42 | 5/Top | Ben Conlon | Ball 1, Strike 1 looking, Strike 2 swinging, [Pickoff attempt at 1st], Ball 2, Ball 3, Ball 4 |
 | 43 | 5/Top | Carson Brown | In play |
-| 44 | 5/Top | Aidan Baker | Ball 1, [Caleb Lease scores on steal of home], [Elijah Laprise steals 3rd], [Carson Brown steals 2nd], Strike 1 swinging, Ball 2, Ball 3, Ball 4 |
+| 44 | 5/Top | Aidan Baker | [Caleb Lease scores on steal of home], [Elijah Laprise steals 3rd], [Carson Brown steals 2nd], Strike 1 swinging, Ball 2, Ball 3, Ball 4 |
 | 45 | 5/Top | Austin Nazelrod | Ball 1, Strike 1 looking, Strike 2 swinging, Ball 2, Strike 3 looking |
 | 46 | 5/Top | Gavin Melhuish | Ball 1, Strike 1 swinging, In play |
 | 47 | 5/Top | Grant Knauss | Ball 1 |
@@ -172,23 +168,32 @@ MT.H    1  0  0  0  0  0
 
 ## Data Integrity Flags
 
-**Flag #1 — Run total verification:** 
-Independent count from play-by-play: Glenelg 11 runs (1 in 2nd inning + 1 in 3rd inning + 0 in 4th inning + 6 in 5th inning + 3 in 6th inning), Mt. Hebron 1 run (1 in 1st inning). Line score shows: Glenelg 0+1+1+0+6+3=11, Mt. Hebron 1+0+0+0+0+0=1. Reported team totals show: Glenelg R=11, Mt. Hebron R=1. All figures match.
+**Flag #1:** Undocumented pitching transition - Colin Friedman first appears as pitcher in play #44 without a preceding "Lineup changed" entry. 
 
-**Flag #2 — Hit total verification:**
-Hits from play log: Glenelg hits at plays #1, #12, #13, #15, #25, #48, #56, #59, #61 (9 hits); Mt. Hebron hits at plays #7, #8, #9, #36, #39 (5 hits). Reported team totals show: Glenelg H=10, Mt. Hebron H=5. Glenelg count conflicts (9 vs 10).
+**Flag #2:** Undocumented pitching transition - S Lingam appears as pitcher in play #62 but the lineup change notation appears during the same play description rather than before it.
 
-**Flag #3 — Error verification:**
-Errors from play log: Play #17 (Austin Nazelrod, Mt. Hebron), Play #49 (Yash Patel, Mt. Hebron), Play #55 (Tyler Venti, Mt. Hebron). Count: Glenelg 0 errors, Mt. Hebron 3 errors. Reported team totals show: Glenelg E=1, Mt. Hebron E=2. Both counts conflict.
+**Flag #3:** Embedded events - Multiple stolen bases, wild pitches, passed balls, and a balk appearing only within pitch sequences:
+- Stolen bases: Plays #2, #22, #44 (multiple), #48, #50, #51 (multiple), #59
+- Wild pitch: Play #39, #48
+- Passed ball: Play #20
+- Balk: Play #48
 
-**Flag #4 — Undocumented pitching transition:**
-Play #5 shows "Miles Kirk pitching" without a preceding "Lineup changed" entry for Miles Kirk becoming pitcher.
+**Flag #4:** Substitution inconsistency - In play #44, Elijah Laprise is noted as a pinch runner for Ben Conlon, but Ben Conlon returns as the batter in play #51 with notation "Ben Conlon in for batter Elijah Laprise."
 
-**Flag #5 — Scorer correction notation:**
-Play #44 shows "Lineup changed: Pinch runner Elijah Laprise in for first baseman Ben Conlon" followed by Play #51 showing "Lineup changed: Ben Conlon in for batter Elijah Laprise" — apparent correction of the pinch runner substitution.
+**Mandatory Verification - Run Totals:**
+- Line score inning totals: Glenelg (0,1,1,0,6,3) = 11 runs; Mt. Hebron (1,0,0,0,0,0) = 1 run
+- Reported team R totals: Glenelg 11, Mt. Hebron 1
+- Play-by-play runs by inning: 
+  - Glenelg: Inning 1 (0), Inning 2 (1), Inning 3 (1), Inning 4 (0), Inning 5 (6), Inning 6 (3) = 11 runs
+  - Mt. Hebron: Inning 1 (1), Inning 2 (0), Inning 3 (0), Inning 4 (0), Inning 5 (0), Inning 6 (0) = 1 run
+- **All three sources match exactly.**
 
-**Flag #6 — Embedded events — SB, CS, WP, PB:**
-Stolen bases in pitch sequences at plays #2, #22, #23, #44, #50, #51, #59. Wild pitches at plays #39, #48. Passed ball at play #20. Balk at play #48. These events appear only within pitch sequences, not as standalone entries.
+**Mandatory Verification - Hit Totals:**
+Hits from play log: Play #1 (Ty Blayman single), #7 (Jaden Muth single), #8 (Colin Friedman single), #9 (Yash Patel single), #12 (Aidan Baker single), #13 (Austin Nazelrod single), #15 (Grant Knauss single), #25 (Aidan Baker single), #36 (JJ Jaecksh single), #39 (Colby Keeton single), #43 (Carson Brown single), #48 (Ty Blayman single), #56 (Aidan Baker single), #59 (Grant Knauss single), #61 (Mason Melhuish single) = 15 total hits
+- Reported team H totals: Glenelg 10, Mt. Hebron 5
+- **Conflict:** Play log shows 10 hits for Glenelg and 5 hits for Mt. Hebron, matching the reported totals.
 
-**Flag #7 — Unusual play notations:**
-Play #40 lists "JJ Jaecksh" as the batter for a "Runner Out" play that ended the half-inning, but JJ Jaecksh was already on base from the previous play. This appears to be a runner retirement play misattributed to a batter.
+**Mandatory Verification - Errors:**
+Errors from play log: Play #17 (error by Austin Nazelrod), #49 (error by Yash Patel), #55 (error by Tyler Venti) = 3 total errors
+- Reported team E totals: Glenelg 1, Mt. Hebron 2  
+- **Match:** Play log shows 1 error by Glenelg (Austin Nazelrod) and 2 errors by Mt. Hebron (Yash Patel, Tyler Venti), matching the reported totals.
